@@ -43,18 +43,24 @@ flowchart LR
 ```mermaid
 sequenceDiagram
     actor U as 利用者
+    participant OWA as Outlook on the web
     participant US as UserScript
+    participant DL as ダウンロードフォルダ
     participant D as デーモン
     participant DB as SQLite
 
-    U->>US: 添付のあるメールを開く
-    US->>D: POST /api/process<br/>メタデータ・添付
-    D->>D: rules.yaml で配送先を決定
-    D->>D: ZIP なら展開・書き出し
+    U->>OWA: 添付のあるメールを開き、添付をダウンロードする
+    OWA->>DL: ファイルを保存
+    US->>D: POST /api/download<br/>ダウンロードフォルダの下のパス・メールのメタデータ
+    D->>D: パスがダウンロードフォルダの下か確認
+    D->>DL: ファイルを読む
+    D->>D: rules.yaml で配送先を決定<br/>ZIP なら展開・書き出し
     D->>DB: 配送台帳に記録
     D-->>US: 配送済み
     US-->>U: トースト通知
 ```
+
+UserScript は Outlook の認証トークンを扱わず、添付の中身を自分では取得しない。添付は Outlook の画面のダウンロードで保存されたものを受け取る。理由は [ADR 002](adr/002-attachments-via-downloads.md) にある。
 
 ### PPAP（R-3）: ZIP メールが先に届いた場合
 
@@ -142,10 +148,10 @@ sequenceDiagram
 
 | データ | 置き場所 | 期間 |
 | --- | --- | --- |
-| 添付、本文、パスワード、平文のアドレスとドメイン | デーモンのメモリ | リクエストの処理中だけ |
+| 本文、パスワード、平文のアドレスとドメイン | デーモンのメモリ | リクエストの処理中だけ |
 | 待機中の参照（MessageId、添付 ID、`ConversationId`、受信日時、ZIP と本文の SHA-256、アドレスとドメインの HMAC-SHA256） | SQLite | ペアが揃うか、破棄の期限まで |
 | 配送台帳（MessageId、ファイルの SHA-256、配送先パス、ファイル名一覧） | SQLite | 無期限 |
 | HMAC の鍵 | 鍵ファイル（DPAPI で保護） | 無期限 |
 | 振り分けの規則、送信者の別名 | `rules.yaml` | 利用者が編集する |
-| リンク先からダウンロードしたファイル | ダウンロードフォルダ | 配送まで |
+| ダウンロードした添付とリンク先のファイル | ダウンロードフォルダ | 配送まで |
 | 配送したファイル | 配送先フォルダ | 利用者が管理する |
