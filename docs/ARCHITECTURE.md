@@ -49,7 +49,8 @@ sequenceDiagram
     participant D as デーモン
     participant DB as SQLite
 
-    U->>OWA: 添付のあるメールを開き、添付をダウンロードする
+    U->>OWA: 添付のあるメールを開く
+    US->>OWA: 添付をクリックしてダウンロードさせる
     OWA->>DL: ファイルを保存
     US->>D: POST /api/download<br/>ダウンロードフォルダの下のパス・メールのメタデータ
     D->>D: パスがダウンロードフォルダの下か確認
@@ -60,7 +61,7 @@ sequenceDiagram
     US-->>U: トースト通知
 ```
 
-UserScript は Outlook の認証トークンを扱わず、添付の中身を自分では取得しない。添付は Outlook の画面のダウンロードで保存されたものを受け取る。理由は [ADR 002](adr/002-attachments-via-downloads.md) にある。
+UserScript は Outlook の認証トークンを扱わず、添付の中身を自分では取得しない。Outlook の画面の添付をクリックしてダウンロードさせ、保存されたものを受け取る。2 つ目以降の添付を保存させるには、Outlook のサイトに Chrome の自動ダウンロードが許可されている必要がある。理由は [ADR 002](adr/002-attachments-via-downloads.md) にある。
 
 ### PPAP（R-3）: ZIP メールが先に届いた場合
 
@@ -73,7 +74,8 @@ sequenceDiagram
     participant D as デーモン
     participant DB as SQLite
 
-    U->>OWA: ZIP メールを開き、ZIP をダウンロードする
+    U->>OWA: ZIP メールを開く
+    US->>OWA: ZIP をクリックしてダウンロードさせる
     OWA->>DL: 暗号化された ZIP を保存
     US->>D: POST /api/download<br/>ZIP のパス・メールのメタデータ
     D->>DB: ペアの相手を探す
