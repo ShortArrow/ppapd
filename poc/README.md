@@ -58,5 +58,6 @@ python -I poc/samples/make_samples.py
 | `ppap-aes256-cp932.zip` | AES-256 | CP932 | R-3、F-4.1、F-4.2 |
 | `zip-slip.zip` | なし | ASCII | F-4.3（`../../outside.txt` を含む） |
 | `password-mail.txt` | — | — | F-1.3（パスワードメールの本文の例） |
+| `sample.pdf` | — | — | R-1（ZIP 以外の添付。白紙 1 ページ） |
 
 中身はどれも同じで、`図面/` フォルダの下に 2 ファイル、直下に 2 ファイルがある。

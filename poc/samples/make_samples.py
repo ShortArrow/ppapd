@@ -126,6 +126,24 @@ def rename_to_cp932(src: Path, out: Path) -> None:
     out.write_bytes(b"".join(local_parts) + central + end)
 
 
+def minimal_pdf(out: Path) -> None:
+    """Write a one-page PDF with no text, valid enough for a mail client to preview."""
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] >>",
+    ]
+    body, offsets = b"%PDF-1.4\n", []
+    for number, obj in enumerate(objects, start=1):
+        offsets.append(len(body))
+        body += b"%d 0 obj\n" % number + obj + b"\nendobj\n"
+    xref = len(body)
+    body += b"xref\n0 %d\n0000000000 65535 f \n" % (len(objects) + 1)
+    body += b"".join(b"%010d 00000 n \n" % o for o in offsets)
+    body += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%EOF\n" % (len(objects) + 1, xref)
+    out.write_bytes(body)
+
+
 def main() -> None:
     out_dir = Path(sys.argv[1] if len(sys.argv) > 1 else Path(__file__).parent / "out")
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -143,6 +161,7 @@ def main() -> None:
             rename_to_cp932(utf8, out_dir / f"ppap-{label}-cp932.zip")
 
     (out_dir / "password-mail.txt").write_text(PASSWORD_MAIL, encoding="utf-8")
+    minimal_pdf(out_dir / "sample.pdf")
 
 
 if __name__ == "__main__":
