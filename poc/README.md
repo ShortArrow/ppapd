@@ -45,7 +45,7 @@ URL のクエリの値は記録の時点で伏せている。ただし、次の�
 | 部品 | 内容 |
 | --- | --- |
 | `extension/` | Outlook on the web でメールを開いたとき（URL の変化）と、メール一覧の表示が変わったときに、一覧の項目の `data-convid` をバックグラウンドへ送る。バックグラウンドは一本の `connectNative` の接続でホストへ中継し、ホストが返した ID の一覧の項目に「済」の印を付ける。`key` で拡張機能の ID を `emhcpcooogencdnpjbgopakclfnojche` に固定している |
-| `host/` | 受け取った ID をそのまま返す C# のホスト。起動、受信、終了を `%LOCALAPPDATA%\ppapd-poc\native-host.log` に記録する。記録するのは件数と時刻だけで、ID は記録しない |
+| `host/` | 受け取った ID をそのまま返す C# のホスト。起動、受信、終了を `%LOCALAPPDATA%\ppapd-poc\native-host.log` に記録する。メールの ID は件数だけを記録する。拡張機能 0.0.2 からは、すべてのタブの移動先とダウンロードのホスト名、ダウンロードしたファイル名も記録するので、記録を共有する前に確認すること |
 | `register.ps1` | ホストをビルドし、ホストのマニフェストを `HKCU\Software\Google\Chrome\NativeMessagingHosts\jp.shortarrow.ppapd.poc` に登録する。管理者の権限は要らない。`-Unregister` で登録を消す |
 
 ### 使い方
