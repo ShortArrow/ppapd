@@ -30,7 +30,10 @@ try
     {
         received++;
         var convids = message["convids"]?.AsArray() ?? [];
-        Log($"message #{received} kind={message["kind"]} convids={convids.Count} prevRoundTripMs={message["prevRoundTripMs"]}");
+        var fields = string.Join(' ', message
+            .Where(p => p.Key is not ("convids" or "kind"))
+            .Select(p => $"{p.Key}={p.Value?.ToJsonString()}"));
+        Log($"message #{received} kind={message["kind"]} convids={convids.Count} {fields}");
 
         var reply = new JsonObject
         {

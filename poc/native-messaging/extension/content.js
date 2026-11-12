@@ -48,6 +48,22 @@ function check() {
   }
 }
 
+document.addEventListener(
+  "click",
+  (event) => {
+    const link = event.target.closest?.("a[href]");
+    if (!link) return;
+    let host = "";
+    try {
+      host = new URL(link.href).host;
+    } catch {
+      host = "unparseable";
+    }
+    chrome.runtime.sendMessage({ kind: "link-clicked", urlHost: host, target: link.target, rel: link.rel, convids: [] });
+  },
+  true,
+);
+
 new MutationObserver((mutations) => {
   if (mutations.every((m) => [...m.addedNodes].every((n) => n.classList?.contains(MARK_CLASS)))) return;
   clearTimeout(timer);
