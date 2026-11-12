@@ -38,6 +38,23 @@ URL のクエリの値は記録の時点で伏せている。ただし、次の�
 
 公開の場所に貼る前に確認すること。
 
+## native-messaging
+
+ブラウザ拡張から Native Messaging でローカルのプロセスへ送れるかと、その往復でメール一覧に印を付けられるかを確かめる。
+
+| 部品 | 内容 |
+| --- | --- |
+| `extension/` | Outlook on the web でメールを開いたとき（URL の変化）と、メール一覧の表示が変わったときに、一覧の項目の `data-convid` をバックグラウンドへ送る。バックグラウンドは一本の `connectNative` の接続でホストへ中継し、ホストが返した ID の一覧の項目に「済」の印を付ける。`key` で拡張機能の ID を `emhcpcooogencdnpjbgopakclfnojche` に固定している |
+| `host/` | 受け取った ID をそのまま返す C# のホスト。起動、受信、終了を `%LOCALAPPDATA%\ppapd-poc\native-host.log` に記録する。記録するのは件数と時刻だけで、ID は記録しない |
+| `register.ps1` | ホストをビルドし、ホストのマニフェストを `HKCU\Software\Google\Chrome\NativeMessagingHosts\jp.shortarrow.ppapd.poc` に登録する。管理者の権限は要らない。`-Unregister` で登録を消す |
+
+### 使い方
+
+1. `pwsh poc/native-messaging/register.ps1` を実行する。
+2. Chrome の拡張機能の画面で、「パッケージ化されていない拡張機能を読み込む」で `poc/native-messaging/extension` を選ぶ。
+3. Outlook on the web を開き直し、メールを開いたり、フォルダを切り替えたりする。
+4. メール一覧の項目に「済」が付くこと、ホストの記録に起動と受信が残ることを確かめる。
+
 ## samples
 
 PRD の受け取り経路と ZIP の扱いを試すためのサンプルを、`make_samples.py` で `samples/out/` に生成する。生成物はコミットしない。
