@@ -8,7 +8,7 @@ ppapd の部品の配置、処理の流れ、データの置き場所を図で�
 flowchart LR
     subgraph Browser["ブラウザ"]
         OWA["Outlook on the web"]
-        US["UserScript"]
+        US["ブラウザ拡張<br/>Manifest V3"]
         LINK["リンク先<br/>OneDrive・転送サービス"]
         OWA -- "DOM・内部 API" --> US
     end
@@ -27,7 +27,9 @@ flowchart LR
     DEST["配送先<br/>プロジェクトルートの下"]
     EXP["エクスプローラー"]
 
+    OWA -- "添付のダウンロード" --> DL
     LINK -- "ブラウザのダウンロード" --> DL
+    DL -. "完了と保存先のパス<br/>chrome.downloads" .-> US
     US -- "HTTP 127.0.0.1:18080<br/>Bearer トークン" --> D
     DL -- "ファイルを読む" --> D
     D -- "配送" --> DEST
@@ -44,7 +46,7 @@ flowchart LR
 sequenceDiagram
     actor U as 利用者
     participant OWA as Outlook on the web
-    participant US as UserScript
+    participant US as ブラウザ拡張
     participant DL as ダウンロードフォルダ
     participant D as デーモン
     participant DB as SQLite
@@ -61,7 +63,7 @@ sequenceDiagram
     US-->>U: トースト通知
 ```
 
-UserScript は Outlook の認証トークンを扱わず、添付の中身を自分では取得しない。Outlook の画面の添付をクリックしてダウンロードさせ、保存されたものを受け取る。2 つ目以降の添付を保存させるには、Outlook のサイトに Chrome の自動ダウンロードが許可されている必要がある。理由は [ADR 002](adr/002-attachments-via-downloads.md) にある。
+ブラウザ拡張は Outlook の認証トークンを扱わず、添付の中身を自分では取得しない。Outlook の画面の添付をクリックしてダウンロードさせ、保存されたものを受け取る。2 つ目以降の添付を保存させるには、Outlook のサイトに Chrome の自動ダウンロードが許可されている必要がある。理由は [ADR 002](adr/002-attachments-via-downloads.md) にある。
 
 ### PPAP（R-3）: ZIP メールが先に届いた場合
 
@@ -69,7 +71,7 @@ UserScript は Outlook の認証トークンを扱わず、添付の中身を自
 sequenceDiagram
     actor U as 利用者
     participant OWA as Outlook on the web
-    participant US as UserScript
+    participant US as ブラウザ拡張
     participant DL as ダウンロードフォルダ
     participant D as デーモン
     participant DB as SQLite
@@ -102,7 +104,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     actor U as 利用者
-    participant US as UserScript
+    participant US as ブラウザ拡張
     participant L as リンク先
     participant DL as ダウンロードフォルダ
     participant D as デーモン
@@ -125,7 +127,7 @@ sequenceDiagram
 ```mermaid
 sequenceDiagram
     actor U as 利用者
-    participant US as UserScript
+    participant US as ブラウザ拡張
     participant D as デーモン
     participant DB as SQLite
 
