@@ -16,7 +16,7 @@ flowchart LR
     subgraph PC["利用者の PC（ユーザー権限）"]
         DL["ダウンロードフォルダ"]
         D["デーモン<br/>ASP.NET Core Minimal API<br/>タスクトレイ常駐"]
-        DB[("SQLite<br/>配送台帳・待機中の参照")]
+        DB[("SQLite<br/>配送台帳・待機中の ZIP の記録")]
         KEY["鍵ファイル<br/>DPAPI で保護"]
         CFG["rules.yaml"]
         D --- DB
@@ -67,36 +67,33 @@ UserScript は Outlook の認証トークンを扱わず、添付の中身を自
 ```mermaid
 sequenceDiagram
     actor U as 利用者
+    participant OWA as Outlook on the web
     participant US as UserScript
+    participant DL as ダウンロードフォルダ
     participant D as デーモン
     participant DB as SQLite
 
-    U->>US: ZIP メールを開く
-    US->>D: POST /api/process<br/>メタデータ・ZIP・本文
+    U->>OWA: ZIP メールを開き、ZIP をダウンロードする
+    OWA->>DL: 暗号化された ZIP を保存
+    US->>D: POST /api/download<br/>ZIP のパス・メールのメタデータ
     D->>DB: ペアの相手を探す
     DB-->>D: なし
-    D->>DB: 参照を記録<br/>MessageId・添付 ID・SHA-256・HMAC
-    Note over D: ZIP と本文をメモリから破棄
+    D->>DB: 待機中の ZIP を記録<br/>パス・SHA-256・MessageId・HMAC
     D-->>US: 待機中
 
     U->>US: パスワードメールを開く
     US->>D: POST /api/process<br/>メタデータ・本文・パスワード候補
     D->>DB: ペアの相手を探す
-    DB-->>D: ZIP メールの参照
-    Note over D: 本文とパスワードをメモリから破棄
-    D-->>US: 再取得の要求<br/>ZIP メールの MessageId・添付
-    US->>US: ZIP を MessageId で取得
-    US->>D: POST /api/process<br/>パスワードメールの内容と ZIP を一度に
-    D->>D: ZIP の SHA-256 を記録と照合
+    DB-->>D: 待機中の ZIP の記録
+    D->>DL: ZIP を読み、SHA-256 を記録と照合
     D->>D: 解凍・rules.yaml で配送先を決定・書き出し
     D->>DB: 配送台帳に記録
+    Note over D: 本文とパスワードをメモリから破棄
     D-->>US: 配送済み
     US-->>U: トースト通知
 ```
 
-パスワードメールが先に届いた場合は、ZIP とパスワードの役割が入れ替わる。デーモンはパスワードメール本文の再取得を要求し、本文の SHA-256 を照合する。
-
-デーモンはリクエストをまたいで ZIP、本文、パスワードを持たない。ペアが揃ったときは、UserScript が両方の内容を一つのリクエストにまとめて送る。
+待たせ方の理由は [ADR 001](adr/001-pending-by-reference.md) にある。
 
 ### ダウンロードリンク（R-4、R-5）
 
@@ -149,7 +146,8 @@ sequenceDiagram
 | データ | 置き場所 | 期間 |
 | --- | --- | --- |
 | 本文、パスワード、平文のアドレスとドメイン | デーモンのメモリ | リクエストの処理中だけ |
-| 待機中の参照（MessageId、添付 ID、`ConversationId`、受信日時、ZIP と本文の SHA-256、アドレスとドメインの HMAC-SHA256） | SQLite | ペアが揃うか、破棄の期限まで |
+| 待機中の ZIP の記録（ダウンロードフォルダの下のパス、SHA-256、MessageId、`ConversationId`、受信日時、アドレスとドメインの HMAC-SHA256） | SQLite | ペアが揃うか、破棄の期限まで |
+| 待機中の暗号化された ZIP | ダウンロードフォルダ | ペアが揃うまで |
 | 配送台帳（MessageId、ファイルの SHA-256、配送先パス、ファイル名一覧） | SQLite | 無期限 |
 | HMAC の鍵 | 鍵ファイル（DPAPI で保護） | 無期限 |
 | 振り分けの規則、送信者の別名 | `rules.yaml` | 利用者が編集する |
