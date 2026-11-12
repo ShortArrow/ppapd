@@ -58,7 +58,8 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.url) post({ kind: "tab-navigated", tabId, urlHost: hostOf(changeInfo.url) });
 });
 
-chrome.downloads.onCreated.addListener((item) => {
+chrome.downloads.onCreated.addListener(async (item) => {
+  const [activeTab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   post({
     kind: "download-created",
     downloadId: item.id,
@@ -66,6 +67,8 @@ chrome.downloads.onCreated.addListener((item) => {
     finalUrlHost: hostOf(item.finalUrl),
     referrerHost: hostOf(item.referrer),
     byExtensionId: item.byExtensionId ?? "",
+    activeTabId: activeTab?.id,
+    activeTabHost: hostOf(activeTab?.url),
   });
 });
 

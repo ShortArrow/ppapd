@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ppapd PoC native messaging",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "Sends mail-open and mail-list events from Outlook on the web to a local Native Messaging host and marks the IDs it answers with.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAq8YgdUkxAMTOLwHaan9zZIuR+hQCm/nphfgL2B+kzQxNJkgIWs8i7S7/mu7Gk8l5avpBwTxqJsVoFACfc58M4aQbpZVj+bXk/sobS75yX6VVw/QjdOM6uQfOZHjG/gxgoyhXYqCQjTv2B+ae1s+vmaFwcKgysteSFFi8VzyzOhBlhj5bTHo7bxftb0QW7yeAdk8NEz4LNJ2m8Pnkl2CnLAQOIJ0xMrIjjoFPFVFKgKz2YHZDjuRtEVMTFu0OGUUzCf0I4CM0bwwJTQtsNnJuFuaBD7XmBsYpSPFh7gXsGXUuhpVRl9Gnpj5h5xQzlDH/oIvQHSO6AE4rOeenq5z2aQIDAQAB",
   "permissions": [
