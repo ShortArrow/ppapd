@@ -79,6 +79,19 @@ chrome.webRequest.onBeforeRequest.addListener(
   { urls: ["<all_urls>"] },
 );
 
+/** Records the header names (never values) Outlook sends with GetFileAttachment, to learn how it authenticates. */
+chrome.webRequest.onSendHeaders.addListener(
+  (details) => {
+    if (!/\/GetFileAttachment\?/.test(details.url)) return;
+    record("attachment-request-headers", {
+      tabId: details.tabId,
+      headerNames: (details.requestHeaders ?? []).map((h) => h.name.toLowerCase()).sort(),
+    });
+  },
+  { urls: ["<all_urls>"] },
+  ["requestHeaders", "extraHeaders"],
+);
+
 const refetchedUrls = new Set();
 
 /**

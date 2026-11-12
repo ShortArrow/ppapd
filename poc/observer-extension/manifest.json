@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "ppapd PoC observer",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "Records how Outlook on the web exposes message IDs, attachments and downloads. Logs stay in the browser until exported.",
   "permissions": [
     "downloads",
