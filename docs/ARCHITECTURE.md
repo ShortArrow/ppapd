@@ -15,7 +15,7 @@ flowchart LR
 
     subgraph PC["利用者の PC（ユーザー権限）"]
         DL["ダウンロードフォルダ"]
-        D["デーモン<br/>.NET<br/>タスクトレイ常駐"]
+        D["デーモン<br/>.NET<br/>Native Messaging のホスト"]
         DB[("SQLite<br/>配送台帳・待機中の ZIP の記録")]
         KEY["鍵ファイル<br/>DPAPI で保護"]
         CFG["rules.yaml"]
