@@ -31,8 +31,16 @@ observer-extension で観察した結果を、観察したときの Outlook と�
 | `GetItem` の応答 | `ItemId`（`AAkALgAA…` で始まる、Exchange のメール単体の ID）を含んでいた。URL の会話 ID（`AQQkADAw…`）とは別の値である。この応答に添付 ID は含まれていなかった |
 | ページからの通信の横取り | ページの `fetch` と `XMLHttpRequest` を差し替えても、メールを開き直したときの `GetConversationItems` は捕まらなかった。Outlook は開いたことのあるメールをキャッシュから表示し、通信の一部はページの外（ワーカー）から出ている可能性がある |
 
+### 拡張機能からの取り直し（observer-extension 0.0.6、Google Chrome 156.0.8078.81、Windows platformVersion 19.0.0）
+
+| 観察 | 結果 |
+| --- | --- |
+| Outlook 自身の取得 | 添付をクリックすると、ページが `XMLHttpRequest` で `GetFileAttachment` を GET した。URL の `X-OWA-CANARY` の値は `X-OWA-CANARY_cookie_is_null_or_empty` だった |
+| 拡張機能からの取り直し | 同じ URL を拡張機能のバックグラウンドから `credentials: "include"` で GET すると、HTTP 400 で中身は空だった。URL だけでは添付を取り直せない。Outlook は URL 以外（リクエストヘッダーなど）で認証していると考えられる |
+| ダウンロード | Outlook が取得した中身は blob として保存され、`chrome.downloads` で `C:\Users\<ユーザー名>\Downloads\ppap-zipcrypto-cp932 (3).zip`（903 バイト）という絶対パスが取れた |
+
 ### 次に確かめること
 
-- `GetFileAttachment` の URL を拡張機能がもう一度取得したとき、同じ中身が返るか。observer-extension 0.0.6 で、取り直した中身のバイト数と SHA-256 を記録する。
+- Outlook が `GetFileAttachment` に付けているリクエストヘッダーの名前（値は記録しない）。認証がヘッダーのトークンなのか、Cookie なのかを見分ける。
 - 添付 ID を、添付をクリックする前に得る方法。
 - 仕事用の Microsoft 365（`outlook.office.com`）でも同じか。
