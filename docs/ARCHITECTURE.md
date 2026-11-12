@@ -15,7 +15,7 @@ flowchart LR
 
     subgraph PC["利用者の PC（ユーザー権限）"]
         DL["ダウンロードフォルダ"]
-        D["デーモン<br/>ASP.NET Core Minimal API<br/>タスクトレイ常駐"]
+        D["デーモン<br/>.NET<br/>タスクトレイ常駐"]
         DB[("SQLite<br/>配送台帳・待機中の ZIP の記録")]
         KEY["鍵ファイル<br/>DPAPI で保護"]
         CFG["rules.yaml"]
@@ -30,13 +30,13 @@ flowchart LR
     OWA -- "添付のダウンロード" --> DL
     LINK -- "ブラウザのダウンロード" --> DL
     DL -. "完了と保存先のパス<br/>chrome.downloads" .-> US
-    US -- "HTTP 127.0.0.1:18080<br/>Bearer トークン" --> D
+    US -- "Native Messaging<br/>標準入出力" --> D
     DL -- "ファイルを読む" --> D
     D -- "配送" --> DEST
     D -- "配送先フォルダを開く" --> EXP
 ```
 
-ブラウザとデーモンの境界は、ループバックの HTTP とダウンロードフォルダの二つである。デーモンは Outlook on the web にもインターネットにも接続しない。メールの取得と、リンク先のログインとダウンロードは、すべてブラウザ側が行う。
+ブラウザとデーモンの境界は、Native Messaging とダウンロードフォルダの二つである。デーモンはネットワークのポートで待ち受けない。デーモンは Outlook on the web にもインターネットにも接続しない。メールの取得と、リンク先のログインとダウンロードは、すべてブラウザ側が行う。
 
 ## 処理の流れ
 
@@ -54,7 +54,7 @@ sequenceDiagram
     U->>OWA: 添付のあるメールを開く
     US->>OWA: 添付をクリックしてダウンロードさせる
     OWA->>DL: ファイルを保存
-    US->>D: POST /api/download<br/>ダウンロードフォルダの下のパス・メールのメタデータ
+    US->>D: download<br/>ダウンロードフォルダの下のパス・メールのメタデータ
     D->>D: パスがダウンロードフォルダの下か確認
     D->>DL: ファイルを読む
     D->>D: rules.yaml で配送先を決定<br/>ZIP なら展開・書き出し
@@ -79,14 +79,14 @@ sequenceDiagram
     U->>OWA: ZIP メールを開く
     US->>OWA: ZIP をクリックしてダウンロードさせる
     OWA->>DL: 暗号化された ZIP を保存
-    US->>D: POST /api/download<br/>ZIP のパス・メールのメタデータ
+    US->>D: download<br/>ZIP のパス・メールのメタデータ
     D->>DB: ペアの相手を探す
     DB-->>D: なし
     D->>DB: 待機中の ZIP を記録<br/>パス・SHA-256・MessageId・HMAC
     D-->>US: 待機中
 
     U->>US: パスワードメールを開く
-    US->>D: POST /api/process<br/>メタデータ・本文・パスワード候補
+    US->>D: process<br/>メタデータ・本文・パスワード候補
     D->>DB: ペアの相手を探す
     DB-->>D: 待機中の ZIP の記録
     D->>DL: ZIP を読み、SHA-256 を記録と照合
@@ -113,7 +113,7 @@ sequenceDiagram
     U->>US: リンクのあるメールを開き、リンクを開く
     U->>L: 必要ならログインし、ダウンロードする
     L->>DL: ファイルを保存
-    US->>D: POST /api/download<br/>ダウンロードフォルダの下のパス・メールのメタデータ
+    US->>D: download<br/>ダウンロードフォルダの下のパス・メールのメタデータ
     D->>D: パスがダウンロードフォルダの下か確認
     D->>DL: ファイルを読む
     D->>D: rules.yaml で配送先を決定<br/>ZIP なら展開・書き出し
@@ -132,24 +132,24 @@ sequenceDiagram
     participant DB as SQLite
 
     U->>US: メール一覧を表示する
-    US->>D: POST /api/status<br/>表示中の MessageId 一覧
+    US->>D: status<br/>表示中の MessageId 一覧
     D->>DB: 配送状態を照会
     D-->>US: MessageId ごとの状態
     US-->>U: バッジを表示
 
     U->>US: バッジをクリック
-    US->>D: POST /api/reveal<br/>MessageId
+    US->>D: reveal<br/>MessageId
     D->>DB: 配送先パスを照会
     D->>D: エクスプローラーで開く
 ```
 
-`/api/reveal` はパスを受け取らない。開くのは配送台帳に記録された配送先だけである。
+`reveal` はパスを受け取らない。開くのは配送台帳に記録された配送先だけである。
 
 ## データの置き場所
 
 | データ | 置き場所 | 期間 |
 | --- | --- | --- |
-| 本文、パスワード、平文のアドレスとドメイン | デーモンのメモリ | リクエストの処理中だけ |
+| 本文、パスワード、平文のアドレスとドメイン | デーモンのメモリ | メッセージの処理中だけ |
 | 待機中の ZIP の記録（ダウンロードフォルダの下のパス、SHA-256、MessageId、`ConversationId`、受信日時、アドレスとドメインの HMAC-SHA256） | SQLite | ペアが揃うか、破棄の期限まで |
 | 待機中の暗号化された ZIP | ダウンロードフォルダ | ペアが揃うまで |
 | 待機中のパスワード候補（DPAPI で暗号化） | SQLite | 解凍を試すか、破棄の期限まで |
