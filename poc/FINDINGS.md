@@ -39,8 +39,18 @@ observer-extension で観察した結果を、観察したときの Outlook と�
 | 拡張機能からの取り直し | 同じ URL を拡張機能のバックグラウンドから `credentials: "include"` で GET すると、HTTP 400 で中身は空だった。URL だけでは添付を取り直せない。Outlook は URL 以外（リクエストヘッダーなど）で認証していると考えられる |
 | ダウンロード | Outlook が取得した中身は blob として保存され、`chrome.downloads` で `C:\Users\<ユーザー名>\Downloads\ppap-zipcrypto-cp932 (3).zip`（903 バイト）という絶対パスが取れた |
 
+### 添付取得の認証（observer-extension 0.0.7、Google Chrome 156.0.8078.81）
+
+`GetFileAttachment` に付いていたリクエストヘッダーの名前を記録した（値は記録していない）。
+
+| 送り手 | ヘッダー名 | 結果 |
+| --- | --- | --- |
+| Outlook のページ | `authorization`、`x-anchormailbox`、`origin`、`referer` などで、`cookie` はない | 成功（903 バイトをダウンロード） |
+| 拡張機能のバックグラウンド | `cookie` などで、`authorization` はない | HTTP 400、中身は空 |
+
+Outlook.com は添付の取得を、Cookie ではなく `Authorization` ヘッダーのトークンで認証している。拡張機能から添付を取り直すには、このトークンを手に入れて付ける必要がある。
+
 ### 次に確かめること
 
-- Outlook が `GetFileAttachment` に付けているリクエストヘッダーの名前（値は記録しない）。認証がヘッダーのトークンなのか、Cookie なのかを見分ける。
 - 添付 ID を、添付をクリックする前に得る方法。
 - 仕事用の Microsoft 365（`outlook.office.com`）でも同じか。
