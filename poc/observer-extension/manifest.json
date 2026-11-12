@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "ppapd PoC observer",
+  "version": "0.0.6",
+  "description": "Records how Outlook on the web exposes message IDs, attachments and downloads. Logs stay in the browser until exported.",
+  "permissions": [
+    "downloads",
+    "webRequest",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "ppapd PoC: export log"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://outlook.office.com/*",
+        "https://outlook.office365.com/*",
+        "https://outlook.cloud.microsoft/*",
+        "https://outlook.live.com/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}
