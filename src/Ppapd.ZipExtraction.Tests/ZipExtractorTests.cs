@@ -25,11 +25,22 @@ public sealed class ZipExtractorTests : IDisposable
 
         ZipExtractor.Extract(zip, destination);
 
-        var expected = new SortedDictionary<string, string>(
-            SamplePayload.ToDictionary(entry => entry.Key, entry => Sha256(Encoding.UTF8.GetBytes(entry.Value))),
-            StringComparer.Ordinal);
-        Assert.Equal(expected, WrittenFiles());
+        Assert.Equal(ExpectedSampleFiles(), WrittenFiles());
     }
+
+    [Fact]
+    public void Extracting_a_zip_without_the_utf8_flag_reads_its_names_as_cp932()
+    {
+        using var zip = File.OpenRead(FixturePath("plain-cp932.zip"));
+
+        ZipExtractor.Extract(zip, destination);
+
+        Assert.Equal(ExpectedSampleFiles(), WrittenFiles());
+    }
+
+    private static SortedDictionary<string, string> ExpectedSampleFiles() => new(
+        SamplePayload.ToDictionary(entry => entry.Key, entry => Sha256(Encoding.UTF8.GetBytes(entry.Value))),
+        StringComparer.Ordinal);
 
     private static string FixturePath(string name) => Path.Combine(AppContext.BaseDirectory, "Fixtures", name);
 
