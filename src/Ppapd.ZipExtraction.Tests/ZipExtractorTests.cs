@@ -38,6 +38,34 @@ public sealed class ZipExtractorTests : IDisposable
         Assert.Equal(ExpectedSampleFiles(), WrittenFiles());
     }
 
+    [Theory]
+    [InlineData("../outside.txt")]
+    [InlineData(@"..\outside.txt")]
+    public void Extracting_a_zip_with_an_entry_climbing_out_of_the_destination_writes_nothing(string escapingName)
+    {
+        var nestedDestination = destination.CreateSubdirectory("a").CreateSubdirectory("b");
+        using var zip = ZipWith("readme.txt", escapingName);
+
+        Assert.Throws<ZipSlipException>(() => ZipExtractor.Extract(zip, nestedDestination));
+
+        Assert.Empty(WrittenFiles());
+    }
+
+    private static MemoryStream ZipWith(params string[] entryNames)
+    {
+        var zip = new MemoryStream();
+        using (var archive = new System.IO.Compression.ZipArchive(zip, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
+        {
+            foreach (var name in entryNames)
+            {
+                using var writer = new StreamWriter(archive.CreateEntry(name).Open());
+                writer.Write("sample\n");
+            }
+        }
+        zip.Position = 0;
+        return zip;
+    }
+
     private static SortedDictionary<string, string> ExpectedSampleFiles() => new(
         SamplePayload.ToDictionary(entry => entry.Key, entry => Sha256(Encoding.UTF8.GetBytes(entry.Value))),
         StringComparer.Ordinal);
