@@ -27,6 +27,7 @@ public static class ZipExtractor
         using var archive = ZipArchive.OpenArchive(zip, new ReaderOptions
         {
             ArchiveEncoding = new ArchiveEncoding { Default = Cp932 },
+            Password = password,
         });
         var entries = archive.Entries.ToList();
         if (entries.Any(entry => IsZipSlip(entry.Key ?? string.Empty, destination)))
