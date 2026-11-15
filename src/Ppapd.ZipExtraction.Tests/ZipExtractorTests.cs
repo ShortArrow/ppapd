@@ -87,15 +87,29 @@ public sealed class ZipExtractorTests : IDisposable
         Assert.Equal(["a/b/outside.txt", "a/b/readme.txt"], WrittenFiles().Keys);
     }
 
-    private static MemoryStream ZipWith(params string[] entryNames)
+    [Fact]
+    public void Extracting_a_zip_that_holds_a_zip_writes_the_inner_zip_as_it_is()
+    {
+        var innerZip = ZipWith("readme.txt").ToArray();
+        using var zip = ZipOf(new Dictionary<string, byte[]> { ["inner.zip"] = innerZip });
+
+        ZipExtractor.Extract(zip, destination);
+
+        Assert.Equal(new SortedDictionary<string, string> { ["inner.zip"] = Sha256(innerZip) }, WrittenFiles());
+    }
+
+    private static MemoryStream ZipWith(params string[] entryNames) =>
+        ZipOf(entryNames.ToDictionary(name => name, _ => Encoding.UTF8.GetBytes("sample\n")));
+
+    private static MemoryStream ZipOf(IReadOnlyDictionary<string, byte[]> entries)
     {
         var zip = new MemoryStream();
         using (var archive = new System.IO.Compression.ZipArchive(zip, System.IO.Compression.ZipArchiveMode.Create, leaveOpen: true))
         {
-            foreach (var name in entryNames)
+            foreach (var (name, content) in entries)
             {
-                using var writer = new StreamWriter(archive.CreateEntry(name).Open());
-                writer.Write("sample\n");
+                using var stream = archive.CreateEntry(name).Open();
+                stream.Write(content);
             }
         }
         zip.Position = 0;
