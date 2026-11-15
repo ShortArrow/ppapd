@@ -18,10 +18,11 @@ public static class ZipExtractor
     /// </summary>
     /// <param name="zip">A readable stream positioned at the start of the archive.</param>
     /// <param name="destination">An existing folder to write into.</param>
+    /// <param name="password">The password of an encrypted archive; <c>null</c> for an unencrypted one.</param>
     /// <exception cref="ZipSlipException">
     /// An entry name points outside <paramref name="destination"/>; nothing has been written.
     /// </exception>
-    public static void Extract(Stream zip, DirectoryInfo destination)
+    public static void Extract(Stream zip, DirectoryInfo destination, string? password = null)
     {
         using var archive = ZipArchive.OpenArchive(zip, new ReaderOptions
         {

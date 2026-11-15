@@ -14,6 +14,9 @@ public sealed class ZipExtractorTests : IDisposable
         ["readme.txt"] = "This is a sample file for ppapd.\n",
     };
 
+    /// <summary>The password of every encrypted sample in Fixtures/; mirrors PASSWORD in poc/samples/make_samples.py.</summary>
+    private const string SamplePassword = "Sample-Pass-2026";
+
     private readonly DirectoryInfo destination = Directory.CreateTempSubdirectory("ppapd-test-");
 
     public void Dispose() => destination.Delete(recursive: true);
@@ -34,6 +37,16 @@ public sealed class ZipExtractorTests : IDisposable
         using var zip = File.OpenRead(FixturePath("plain-cp932.zip"));
 
         ZipExtractor.Extract(zip, destination);
+
+        Assert.Equal(ExpectedSampleFiles(), WrittenFiles());
+    }
+
+    [Fact]
+    public void Extracting_a_zipcrypto_zip_with_its_password_writes_every_file_under_its_folder()
+    {
+        using var zip = File.OpenRead(FixturePath("ppap-zipcrypto-utf8.zip"));
+
+        ZipExtractor.Extract(zip, destination, SamplePassword);
 
         Assert.Equal(ExpectedSampleFiles(), WrittenFiles());
     }
