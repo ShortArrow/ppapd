@@ -51,6 +51,16 @@ public sealed class ZipExtractorTests : IDisposable
         Assert.Equal(ExpectedSampleFiles(), WrittenFiles());
     }
 
+    [Fact]
+    public void Extracting_an_aes256_zip_with_its_password_writes_every_file_under_its_folder()
+    {
+        using var zip = File.OpenRead(FixturePath("ppap-aes256-utf8.zip"));
+
+        ZipExtractor.Extract(zip, destination, SamplePassword);
+
+        Assert.Equal(ExpectedSampleFiles(), WrittenFiles());
+    }
+
     [Theory]
     [InlineData("../outside.txt")]
     [InlineData(@"..\outside.txt")]
