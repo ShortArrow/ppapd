@@ -41,6 +41,8 @@ public sealed class ZipExtractorTests : IDisposable
     [Theory]
     [InlineData("../outside.txt")]
     [InlineData(@"..\outside.txt")]
+    [InlineData(@"C:\outside.txt")]
+    [InlineData("/outside.txt")]
     public void Extracting_a_zip_with_an_entry_climbing_out_of_the_destination_writes_nothing(string escapingName)
     {
         var nestedDestination = destination.CreateSubdirectory("a").CreateSubdirectory("b");
@@ -49,6 +51,17 @@ public sealed class ZipExtractorTests : IDisposable
         Assert.Throws<ZipSlipException>(() => ZipExtractor.Extract(zip, nestedDestination));
 
         Assert.Empty(WrittenFiles());
+    }
+
+    [Fact]
+    public void Extracting_an_entry_under_a_part_of_two_periods_and_a_space_stays_inside_the_destination()
+    {
+        var nestedDestination = destination.CreateSubdirectory("a").CreateSubdirectory("b");
+        using var zip = ZipWith("readme.txt", ".. /outside.txt");
+
+        ZipExtractor.Extract(zip, nestedDestination);
+
+        Assert.Equal(["a/b/outside.txt", "a/b/readme.txt"], WrittenFiles().Keys);
     }
 
     private static MemoryStream ZipWith(params string[] entryNames)
