@@ -36,6 +36,21 @@ public sealed class ZipDeliveryTests : IDisposable
     }
 
     [Fact]
+    public void Delivered_files_take_the_permissions_of_the_destination_and_not_those_of_the_work_folder()
+    {
+        var zip = new FileInfo(SampleFixtures.Path("ppap-zipcrypto-utf8.zip"));
+
+        ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work);
+
+        Assert.All(destination.EnumerateFiles("*", SearchOption.AllDirectories), file =>
+        {
+            var security = file.GetAccessControl();
+            Assert.False(security.AreAccessRulesProtected);
+            Assert.NotEmpty(security.GetAccessRules(includeExplicit: false, includeInherited: true, typeof(System.Security.Principal.SecurityIdentifier)));
+        });
+    }
+
+    [Fact]
     public void Delivering_an_unencrypted_zip_writes_its_files_and_no_repacked_zip()
     {
         var zip = new FileInfo(SampleFixtures.Path("plain-utf8.zip"));
