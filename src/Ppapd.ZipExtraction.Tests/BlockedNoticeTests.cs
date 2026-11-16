@@ -53,6 +53,30 @@ public sealed class BlockedNoticeTests : IDisposable
         Assert.Equal(Encoding.UTF8.Preamble.ToArray(), bytes[..3]);
     }
 
+    [Theory]
+    [InlineData(@"..\outside.zip")]
+    [InlineData("../outside.zip")]
+    [InlineData("")]
+    public void A_zip_name_that_is_not_a_plain_file_name_is_refused_and_nothing_is_written(string zipName)
+    {
+        var nested = destination.CreateSubdirectory("a");
+
+        Assert.Throws<ArgumentException>(() => BlockedNotice.Write(nested, zipName, BlockReason.ZipSlip));
+
+        Assert.Empty(destination.EnumerateFiles("*", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public void A_zip_name_that_is_an_absolute_path_is_refused_and_nothing_is_written()
+    {
+        var nested = destination.CreateSubdirectory("a");
+        var absolute = Path.Combine(destination.FullName, "outside.zip");
+
+        Assert.Throws<ArgumentException>(() => BlockedNotice.Write(nested, absolute, BlockReason.ZipSlip));
+
+        Assert.Empty(destination.EnumerateFiles("*", SearchOption.AllDirectories));
+    }
+
     [Fact]
     public void A_second_block_of_the_same_zip_name_replaces_the_earlier_notice()
     {
