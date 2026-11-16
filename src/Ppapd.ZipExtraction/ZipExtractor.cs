@@ -24,11 +24,7 @@ public static class ZipExtractor
     /// </exception>
     public static void Extract(Stream zip, DirectoryInfo destination, string? password = null)
     {
-        using var archive = ZipArchive.OpenArchive(zip, new ReaderOptions
-        {
-            ArchiveEncoding = new ArchiveEncoding { Default = Cp932 },
-            Password = password,
-        });
+        using var archive = Open(zip, password);
         var entries = archive.Entries.ToList();
         if (entries.Any(entry => IsZipSlip(entry.Key ?? string.Empty, destination)))
         {
@@ -41,6 +37,26 @@ public static class ZipExtractor
             entry.WriteToDirectory(destination.FullName, options);
         }
     }
+
+    /// <summary>
+    /// Yields the name, as read under F-4.2, and a content opener of every file entry of <paramref name="zip"/>.
+    /// Each opener is valid only until the enumeration moves on.
+    /// </summary>
+    internal static IEnumerable<(string Name, Func<Stream> Open)> FileEntries(Stream zip, string? password)
+    {
+        using var archive = Open(zip, password);
+        foreach (var entry in archive.Entries.Where(entry => !entry.IsDirectory))
+        {
+            yield return (entry.Key ?? string.Empty, entry.OpenEntryStream);
+        }
+    }
+
+    private static IArchive Open(Stream zip, string? password) =>
+        ZipArchive.OpenArchive(zip, new ReaderOptions
+        {
+            ArchiveEncoding = new ArchiveEncoding { Default = Cp932 },
+            Password = password,
+        });
 
     private static bool IsZipSlip(string name, DirectoryInfo destination) =>
         ClimbsOrIsRooted(name) || ResolvesOutside(name, destination);
