@@ -163,6 +163,38 @@ public sealed class ZipExtractorTests : IDisposable
         Assert.Empty(WrittenFiles());
     }
 
+    [Fact]
+    public void Extraction_failing_partway_removes_what_this_zip_wrote_and_keeps_what_was_there()
+    {
+        File.WriteAllText(Path.Combine(destination.FullName, "existing.txt"), "kept\n");
+        var zip = ZipWith("sub/a.txt", "sub/b.txt");
+        CorruptData(zip, "sub/b.txt");
+
+        Assert.ThrowsAny<Exception>(() => ZipExtractor.Extract(zip, destination));
+
+        Assert.Equal(["existing.txt"], destination.EnumerateFileSystemInfos("*", SearchOption.AllDirectories).Select(info => info.Name));
+    }
+
+    /// <summary>
+    /// Overwrites the first byte of <paramref name="entryName"/>'s compressed data with a reserved Deflate block type,
+    /// so that decompressing that entry fails.
+    /// </summary>
+    private static void CorruptData(MemoryStream zip, string entryName)
+    {
+        var bytes = zip.GetBuffer().AsSpan(0, (int)zip.Length);
+        var name = Encoding.UTF8.GetBytes(entryName);
+        for (var offset = 0; offset + 30 <= bytes.Length; offset++)
+        {
+            var header = bytes[offset..];
+            if (System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(header) == 0x04034b50 && header[30..].StartsWith(name))
+            {
+                var nameLength = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(header[26..]);
+                var extraLength = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(header[28..]);
+                header[30 + nameLength + extraLength] = 0xFF;
+            }
+        }
+        zip.Position = 0;
+    }
     /// <summary>Rewrites the uncompressed size in every local and central header of <paramref name="zip"/> to <paramref name="size"/>.</summary>
     private static void UnderstateUncompressedSizes(MemoryStream zip, uint size)
     {
