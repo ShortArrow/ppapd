@@ -85,6 +85,26 @@ public sealed class ZipExtractorTests : IDisposable
         Assert.Equal(new SortedDictionary<string, string> { ["inner.zip"] = SampleFixtures.Sha256(innerZip) }, WrittenFiles());
     }
 
+    [Fact]
+    public void Extracting_a_zip_with_more_than_10000_entries_leaves_nothing_in_the_destination()
+    {
+        using var zip = ZipWith(Enumerable.Range(0, 10_001).Select(index => $"{index}.txt").ToArray());
+
+        Assert.Throws<ZipTooLargeException>(() => ZipExtractor.Extract(zip, destination));
+
+        Assert.Empty(WrittenFiles());
+    }
+
+    [Fact]
+    public void Extracting_a_zip_with_exactly_10000_entries_writes_every_entry()
+    {
+        using var zip = ZipWith(Enumerable.Range(0, 10_000).Select(index => $"{index}.txt").ToArray());
+
+        ZipExtractor.Extract(zip, destination);
+
+        Assert.Equal(10_000, WrittenFiles().Count);
+    }
+
     private static MemoryStream ZipWith(params string[] entryNames) =>
         ZipOf(entryNames.ToDictionary(name => name, _ => Encoding.UTF8.GetBytes("sample\n")));
 
