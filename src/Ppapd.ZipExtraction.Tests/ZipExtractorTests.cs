@@ -186,6 +186,42 @@ public sealed class ZipExtractorTests : IDisposable
         Assert.Empty(destination.EnumerateFileSystemInfos("*", SearchOption.AllDirectories));
     }
 
+    [Fact]
+    public void Extracting_an_aes256_zip_whose_encrypted_data_was_altered_fails_and_leaves_nothing()
+    {
+        var zip = new MemoryStream();
+        using (var sample = File.OpenRead(SampleFixtures.Path("ppap-aes256-utf8.zip")))
+        {
+            sample.CopyTo(zip);
+        }
+        AlterFirstEncryptedByte(zip, "readme.txt");
+
+        Assert.ThrowsAny<Exception>(() => ZipExtractor.Extract(zip, destination, SampleFixtures.Password));
+
+        Assert.Empty(destination.EnumerateFileSystemInfos("*", SearchOption.AllDirectories));
+    }
+
+    /// <summary>
+    /// Flips one byte of <paramref name="entryName"/>'s AES-encrypted data, just after its 16-byte salt and
+    /// 2-byte password verifier, so the password still passes but the content no longer matches its authentication code.
+    /// </summary>
+    private static void AlterFirstEncryptedByte(MemoryStream zip, string entryName)
+    {
+        var bytes = zip.GetBuffer().AsSpan(0, (int)zip.Length);
+        var name = Encoding.UTF8.GetBytes(entryName);
+        for (var offset = 0; offset + 30 <= bytes.Length; offset++)
+        {
+            var header = bytes[offset..];
+            if (System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(header) == 0x04034b50 && header[30..].StartsWith(name))
+            {
+                var nameLength = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(header[26..]);
+                var extraLength = System.Buffers.Binary.BinaryPrimitives.ReadUInt16LittleEndian(header[28..]);
+                header[30 + nameLength + extraLength + 16 + 2] ^= 0xFF;
+            }
+        }
+        zip.Position = 0;
+    }
+
     /// <summary>Flips the CRC-32 recorded for <paramref name="entryName"/> in its local and central headers.</summary>
     private static void CorruptCrc(MemoryStream zip, string entryName)
     {
