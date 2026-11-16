@@ -1,6 +1,7 @@
 using SharpCompress.Archives.Zip;
 using SharpCompress.Archives;
 using SharpCompress.Common;
+using SharpCompress.Crypto;
 using SharpCompress.Readers;
 using System.Text;
 
@@ -52,15 +53,14 @@ public static class ZipExtractor
         var created = new List<FileSystemInfo>();
         try
         {
-            long total = 0;
+            var budget = new ByteBudget(limits.MaxTotalBytes);
             foreach (var entry in entries.Where(entry => !entry.IsDirectory))
             {
                 var file = TargetOf(entry.Key ?? string.Empty, destination);
                 CreateMissingFolders(file.Directory!, created);
                 using var output = new FileStream(file.FullName, FileMode.CreateNew);
                 created.Add(file);
-                using var input = entry.OpenEntryStream();
-                total = CopyWithinLimit(input, output, total, limits.MaxTotalBytes);
+                WriteVerified(entry, budget.Guard(output));
             }
         }
         catch
@@ -83,6 +83,22 @@ public static class ZipExtractor
         return new FileInfo(Path.Combine(folder, Path.GetFileName(name)));
     }
 
+    /// <summary>
+    /// Writes the content of <paramref name="entry"/> to <paramref name="output"/> and checks it against the CRC-32
+    /// the archive records, as SharpCompress's <c>WriteToDirectory</c> does. An entry recording 0 is not checked,
+    /// because AES-encrypted entries in the AE-2 form record 0 in place of their CRC-32.
+    /// </summary>
+    /// <exception cref="InvalidFormatException">The content does not match the recorded CRC-32.</exception>
+    private static void WriteVerified(IArchiveEntry entry, Stream output)
+    {
+        using var crc = new Crc32Stream(output);
+        entry.WriteTo(crc);
+        if (entry.Crc != 0 && crc.Crc != entry.Crc)
+        {
+            throw new InvalidFormatException($"CRC mismatch for entry '{entry.Key}'.");
+        }
+    }
+
     /// <summary>Creates <paramref name="folder"/> and its missing parents, adding each one made to <paramref name="created"/>, outermost first.</summary>
     private static void CreateMissingFolders(DirectoryInfo folder, List<FileSystemInfo> created)
     {
@@ -98,24 +114,6 @@ public static class ZipExtractor
         }
     }
 
-    /// <summary>
-    /// Copies <paramref name="input"/> to <paramref name="output"/> and returns <paramref name="writtenSoFar"/> plus the bytes copied.
-    /// </summary>
-    /// <exception cref="ZipTooLargeException">The running total would pass <paramref name="maxTotalBytes"/>; the excess is not written.</exception>
-    private static long CopyWithinLimit(Stream input, Stream output, long writtenSoFar, long maxTotalBytes)
-    {
-        var buffer = new byte[81920];
-        for (int read; (read = input.Read(buffer)) > 0;)
-        {
-            writtenSoFar += read;
-            if (writtenSoFar > maxTotalBytes)
-            {
-                throw new ZipTooLargeException();
-            }
-            output.Write(buffer, 0, read);
-        }
-        return writtenSoFar;
-    }
 
     /// <summary>
     /// Yields the name, as read under F-4.2, and a content opener of every file entry of <paramref name="zip"/>.
