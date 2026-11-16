@@ -18,11 +18,28 @@ public static class BlockedNotice
     /// <paramref name="reason"/>, in UTF-8 with a byte order mark and CRLF line ends. A notice already there under
     /// that name is replaced.
     /// </summary>
-    public static void Write(DirectoryInfo destination, string zipName, BlockReason reason) =>
+    /// <exception cref="ArgumentException">
+    /// <paramref name="zipName"/> is not a plain file name: it is empty, <c>.</c> or <c>..</c>, holds a folder or a drive,
+    /// or holds a character Windows does not allow in file names. Nothing has been written.
+    /// </exception>
+    public static void Write(DirectoryInfo destination, string zipName, BlockReason reason)
+    {
+        if (!IsPlainFileName(zipName))
+        {
+            throw new ArgumentException("The ZIP name must be a file name without a folder.", nameof(zipName));
+        }
         File.WriteAllText(
             Path.Combine(destination.FullName, zipName + ".blocked.txt"),
             TextFor(reason).Replace("<ZIP の名前>", zipName).ReplaceLineEndings("\r\n"),
             new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
+    }
+
+    /// <summary>The ZIP name comes from the sender of the mail, so it must not be able to steer the notice elsewhere.</summary>
+    private static bool IsPlainFileName(string name) =>
+        name is not ("" or "." or "..")
+        && name.IndexOfAny(Path.GetInvalidFileNameChars()) < 0
+        && !name.Contains('/')
+        && !name.Contains('\\');
 
     private static string TextFor(BlockReason reason) => reason switch
     {
