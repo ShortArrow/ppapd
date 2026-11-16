@@ -12,6 +12,9 @@ public static class ZipExtractor
     /// <summary>The code page Japanese Windows uses for entry names stored without the UTF-8 flag (F-4.2).</summary>
     private static readonly Encoding Cp932 = CodePagesEncodingProvider.Instance.GetEncoding(932)!;
 
+    /// <summary>The most entries, folders included, a ZIP may hold (F-4.6).</summary>
+    private const int MaxEntries = 10_000;
+
     /// <summary>
     /// Writes every file entry of <paramref name="zip"/> under <paramref name="destination"/>,
     /// keeping the folder structure stored in the archive.
@@ -22,10 +25,17 @@ public static class ZipExtractor
     /// <exception cref="ZipSlipException">
     /// An entry name points outside <paramref name="destination"/>; nothing has been written.
     /// </exception>
+    /// <exception cref="ZipTooLargeException">
+    /// The archive holds more than 10,000 entries; nothing has been written.
+    /// </exception>
     public static void Extract(Stream zip, DirectoryInfo destination, string? password = null)
     {
         using var archive = Open(zip, password);
         var entries = archive.Entries.ToList();
+        if (entries.Count > MaxEntries)
+        {
+            throw new ZipTooLargeException();
+        }
         if (entries.Any(entry => IsZipSlip(entry.Key ?? string.Empty, destination)))
         {
             throw new ZipSlipException();
