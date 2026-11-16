@@ -8,11 +8,15 @@ public sealed class ZipDeliveryTests : IDisposable
 {
     private readonly DirectoryInfo downloads = Directory.CreateTempSubdirectory("ppapd-test-");
     private readonly DirectoryInfo destination = Directory.CreateTempSubdirectory("ppapd-test-");
+    private readonly DirectoryInfo workRoot = Directory.CreateTempSubdirectory("ppapd-test-");
+
+    private WorkFolders Work => new(workRoot);
 
     public void Dispose()
     {
         downloads.Delete(recursive: true);
         destination.Delete(recursive: true);
+        workRoot.Delete(recursive: true);
     }
 
     [Fact]
@@ -20,7 +24,7 @@ public sealed class ZipDeliveryTests : IDisposable
     {
         var zip = new FileInfo(SampleFixtures.Path("ppap-zipcrypto-utf8.zip"));
 
-        var blocked = ZipDelivery.Deliver(zip, destination, SampleFixtures.Password);
+        var blocked = ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work);
 
         Assert.Null(blocked);
         var written = WrittenFiles();
@@ -28,6 +32,7 @@ public sealed class ZipDeliveryTests : IDisposable
         Assert.Equal(SampleFixtures.ExpectedFiles(), written);
         using var repacked = ZipFile.OpenRead(Path.Combine(destination.FullName, zip.Name));
         Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(zip.FullName))), repacked.Comment);
+        Assert.Empty(workRoot.EnumerateFileSystemInfos());
     }
 
     [Fact]
@@ -35,10 +40,11 @@ public sealed class ZipDeliveryTests : IDisposable
     {
         var zip = new FileInfo(SampleFixtures.Path("plain-utf8.zip"));
 
-        var blocked = ZipDelivery.Deliver(zip, destination, password: null);
+        var blocked = ZipDelivery.Deliver(zip, destination, password: null, Work);
 
         Assert.Null(blocked);
         Assert.Equal(SampleFixtures.ExpectedFiles(), WrittenFiles());
+        Assert.Empty(workRoot.EnumerateFileSystemInfos());
     }
 
     [Fact]
@@ -46,11 +52,12 @@ public sealed class ZipDeliveryTests : IDisposable
     {
         var zip = SaveZipWith("見積書.zip", "readme.txt", "../outside.txt");
 
-        var blocked = ZipDelivery.Deliver(zip, destination, SampleFixtures.Password);
+        var blocked = ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work);
 
         Assert.Equal(BlockReason.ZipSlip, blocked);
         Assert.Equal(["見積書.zip.blocked.txt"], WrittenFiles().Keys);
         Assert.StartsWith("「見積書.zip」は安全のため", File.ReadAllText(Path.Combine(destination.FullName, "見積書.zip.blocked.txt")));
+        Assert.Empty(workRoot.EnumerateFileSystemInfos());
     }
 
     [Fact]
@@ -58,23 +65,39 @@ public sealed class ZipDeliveryTests : IDisposable
     {
         var zip = SaveZipWith("図面一式.zip", Enumerable.Range(0, 10_001).Select(index => $"{index}.txt").ToArray());
 
-        var blocked = ZipDelivery.Deliver(zip, destination, SampleFixtures.Password);
+        var blocked = ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work);
 
         Assert.Equal(BlockReason.TooLarge, blocked);
         Assert.Equal(["図面一式.zip.blocked.txt"], WrittenFiles().Keys);
         Assert.StartsWith("「図面一式.zip」は配送しませんでした。", File.ReadAllText(Path.Combine(destination.FullName, "図面一式.zip.blocked.txt")));
+        Assert.Empty(workRoot.EnumerateFileSystemInfos());
     }
 
     [Fact]
-    public void Repacking_failing_on_an_entry_named_like_the_zip_removes_what_this_zip_wrote_and_keeps_what_was_there()
+    public void Repacking_failing_on_an_entry_named_like_the_zip_leaves_nothing_of_the_zip_and_keeps_what_was_there()
     {
         File.WriteAllText(Path.Combine(destination.FullName, "existing.txt"), "kept\n");
         var zip = SaveZipWith("見積書.zip", "readme.txt", "図面/A-001.txt", "見積書.zip");
 
-        Assert.ThrowsAny<IOException>(() => ZipDelivery.Deliver(zip, destination, SampleFixtures.Password));
+        Assert.ThrowsAny<IOException>(() => ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work));
 
         Assert.Equal(["existing.txt"], WrittenFiles().Keys);
         Assert.Empty(destination.EnumerateDirectories());
+        Assert.Empty(workRoot.EnumerateFileSystemInfos());
+    }
+
+    [Fact]
+    public void Moving_into_the_destination_failing_on_a_file_already_there_removes_what_was_moved_and_keeps_that_file()
+    {
+        File.WriteAllText(Path.Combine(destination.FullName, "仕様書.txt"), "kept\n");
+        var zip = new FileInfo(SampleFixtures.Path("ppap-zipcrypto-utf8.zip"));
+
+        Assert.ThrowsAny<IOException>(() => ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work));
+
+        Assert.Equal(["仕様書.txt"], WrittenFiles().Keys);
+        Assert.Equal("kept\n", File.ReadAllText(Path.Combine(destination.FullName, "仕様書.txt")));
+        Assert.Empty(destination.EnumerateDirectories());
+        Assert.Empty(workRoot.EnumerateFileSystemInfos());
     }
 
     /// <summary>Saves into the download folder an unencrypted ZIP holding each of <paramref name="entryNames"/>.</summary>
