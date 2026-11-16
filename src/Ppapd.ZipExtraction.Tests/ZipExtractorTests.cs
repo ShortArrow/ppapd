@@ -175,6 +175,34 @@ public sealed class ZipExtractorTests : IDisposable
         Assert.Equal(["existing.txt"], destination.EnumerateFileSystemInfos("*", SearchOption.AllDirectories).Select(info => info.Name));
     }
 
+    [Fact]
+    public void Extracting_an_entry_whose_crc_does_not_match_its_data_fails_and_leaves_nothing()
+    {
+        var zip = ZipWith("a.txt", "b.txt");
+        CorruptCrc(zip, "b.txt");
+
+        Assert.ThrowsAny<Exception>(() => ZipExtractor.Extract(zip, destination));
+
+        Assert.Empty(destination.EnumerateFileSystemInfos("*", SearchOption.AllDirectories));
+    }
+
+    /// <summary>Flips the CRC-32 recorded for <paramref name="entryName"/> in its local and central headers.</summary>
+    private static void CorruptCrc(MemoryStream zip, string entryName)
+    {
+        var bytes = zip.GetBuffer().AsSpan(0, (int)zip.Length);
+        var name = Encoding.UTF8.GetBytes(entryName);
+        for (var offset = 0; offset + 4 <= bytes.Length; offset++)
+        {
+            var signature = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(bytes[offset..]);
+            var (crcOffset, nameOffset) = signature switch { 0x04034b50 => (14, 30), 0x02014b50 => (16, 46), _ => (-1, -1) };
+            if (crcOffset >= 0 && bytes[(offset + nameOffset)..].StartsWith(name))
+            {
+                bytes[offset + crcOffset] ^= 0xFF;
+            }
+        }
+        zip.Position = 0;
+    }
+
     /// <summary>
     /// Overwrites the first byte of <paramref name="entryName"/>'s compressed data with a reserved Deflate block type,
     /// so that decompressing that entry fails.
