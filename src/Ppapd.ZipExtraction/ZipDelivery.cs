@@ -13,39 +13,56 @@ public static class ZipDelivery
     /// <param name="password">The password of an encrypted ZIP; <c>null</c> for an unencrypted one.</param>
     /// <returns>Why the ZIP was blocked, or <c>null</c> when it was delivered.</returns>
     /// <exception cref="Exception">
-    /// Extraction failed for another reason, such as a wrong password or corrupt data; what it wrote has been removed (F-4.8).
+    /// Extraction or repacking failed for another reason, such as a wrong password, corrupt data, or a file of the
+    /// repacked ZIP's name already in <paramref name="destination"/>. Whatever this call wrote has been removed and what
+    /// was there before is kept (F-4.8).
     /// </exception>
     public static BlockReason? Deliver(FileInfo zip, DirectoryInfo destination, string? password)
     {
-        if (ExtractOrBlock(zip, destination, password) is { } reason)
+        List<FileSystemInfo> written;
+        using (var source = zip.OpenRead())
         {
-            BlockedNotice.Write(destination, zip.Name, reason);
-            return reason;
+            try
+            {
+                written = ZipExtractor.Extract(source, destination, password, ExtractionLimits.Default);
+            }
+            catch (ZipSlipException)
+            {
+                return Block(zip, destination, BlockReason.ZipSlip);
+            }
+            catch (ZipTooLargeException)
+            {
+                return Block(zip, destination, BlockReason.TooLarge);
+            }
         }
         if (password is not null)
         {
-            using var source = zip.OpenRead();
-            using var output = new FileStream(Path.Combine(destination.FullName, zip.Name), FileMode.CreateNew);
-            ZipRepacker.Repack(source, password, output);
+            try
+            {
+                Repack(zip, destination, password, written);
+            }
+            catch
+            {
+                ZipExtractor.Remove(written);
+                throw;
+            }
         }
         return null;
     }
 
-    private static BlockReason? ExtractOrBlock(FileInfo zip, DirectoryInfo destination, string? password)
+    private static BlockReason Block(FileInfo zip, DirectoryInfo destination, BlockReason reason)
     {
+        BlockedNotice.Write(destination, zip.Name, reason);
+        return reason;
+    }
+
+    /// <summary>Writes the copy without the password, adding it to <paramref name="written"/> once created.</summary>
+    private static void Repack(FileInfo zip, DirectoryInfo destination, string password, List<FileSystemInfo> written)
+    {
+        var target = new FileInfo(Path.Combine(destination.FullName, zip.Name));
+        using var output = new FileStream(target.FullName, FileMode.CreateNew);
+        written.Add(target);
         using var source = zip.OpenRead();
-        try
-        {
-            ZipExtractor.Extract(source, destination, password);
-            return null;
-        }
-        catch (ZipSlipException)
-        {
-            return BlockReason.ZipSlip;
-        }
-        catch (ZipTooLargeException)
-        {
-            return BlockReason.TooLarge;
-        }
+        ZipRepacker.Repack(source, password, output);
     }
 }

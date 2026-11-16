@@ -31,13 +31,14 @@ public static class ZipExtractor
     /// The archive holds more than 10,000 entries, or its files add up to more than 2 GiB as actually extracted.
     /// </exception>
     public static void Extract(Stream zip, DirectoryInfo destination, string? password = null) =>
-        Extract(zip, destination, password, ExtractionLimits.Default);
+        _ = Extract(zip, destination, password, ExtractionLimits.Default);
 
     /// <summary>
     /// <see cref="Extract(Stream, DirectoryInfo, string?)"/> under <paramref name="limits"/> in place of
     /// <see cref="ExtractionLimits.Default"/>.
     /// </summary>
-    internal static void Extract(Stream zip, DirectoryInfo destination, string? password, ExtractionLimits limits)
+    /// <returns>The files and folders this call created, in the order created.</returns>
+    internal static List<FileSystemInfo> Extract(Stream zip, DirectoryInfo destination, string? password, ExtractionLimits limits)
     {
         using var archive = Open(zip, password);
         var entries = archive.Entries.ToList();
@@ -65,11 +66,18 @@ public static class ZipExtractor
         }
         catch
         {
-            foreach (var info in Enumerable.Reverse(created))
-            {
-                info.Delete();
-            }
+            Remove(created);
             throw;
+        }
+        return created;
+    }
+
+    /// <summary>Deletes <paramref name="created"/>, given in the order created, newest first so each folder is empty when reached.</summary>
+    internal static void Remove(IEnumerable<FileSystemInfo> created)
+    {
+        foreach (var info in created.Reverse())
+        {
+            info.Delete();
         }
     }
 
