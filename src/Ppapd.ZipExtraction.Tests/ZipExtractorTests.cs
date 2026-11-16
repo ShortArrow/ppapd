@@ -134,6 +134,39 @@ public sealed class ZipExtractorTests : IDisposable
         Assert.Equal(["sub/a.txt", "sub/b.txt"], WrittenFiles().Keys);
     }
 
+    [Fact]
+    public void Extracting_an_entry_whose_header_understates_its_size_still_stops_at_the_byte_limit()
+    {
+        var zip = ZipOf(new Dictionary<string, byte[]> { ["zeros.bin"] = new byte[1000] });
+        UnderstateUncompressedSizes(zip, size: 1);
+        using (var archive = new System.IO.Compression.ZipArchive(zip, System.IO.Compression.ZipArchiveMode.Read, leaveOpen: true))
+        {
+            Assert.Equal(1, archive.GetEntry("zeros.bin")!.Length);
+        }
+        zip.Position = 0;
+        var limits = new ExtractionLimits(MaxTotalBytes: 100, MaxEntries: 10);
+
+        Assert.Throws<ZipTooLargeException>(() => ZipExtractor.Extract(zip, destination, null, limits));
+
+        Assert.Empty(WrittenFiles());
+    }
+
+    /// <summary>Rewrites the uncompressed size in every local and central header of <paramref name="zip"/> to <paramref name="size"/>.</summary>
+    private static void UnderstateUncompressedSizes(MemoryStream zip, uint size)
+    {
+        var bytes = zip.GetBuffer().AsSpan(0, (int)zip.Length);
+        for (var offset = 0; offset + 4 <= bytes.Length; offset++)
+        {
+            var signature = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(bytes[offset..]);
+            var sizeOffset = signature switch { 0x04034b50 => 22, 0x02014b50 => 24, _ => -1 };
+            if (sizeOffset >= 0)
+            {
+                System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(bytes[(offset + sizeOffset)..], size);
+            }
+        }
+        zip.Position = 0;
+    }
+
     private static MemoryStream ZipWith(params string[] entryNames) =>
         ZipOf(entryNames.ToDictionary(name => name, _ => Encoding.UTF8.GetBytes("sample\n")));
 
