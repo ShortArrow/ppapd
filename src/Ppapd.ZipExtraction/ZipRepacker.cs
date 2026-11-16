@@ -14,8 +14,8 @@ public static class ZipRepacker
     /// </summary>
     /// <remarks>
     /// Precondition: <paramref name="encryptedZip"/> has already passed <see cref="ZipExtractor.Extract"/>
-    /// without a <see cref="ZipSlipException"/>. This method does not check entry names for Zip Slip
-    /// (F-4.3) and copies them into the new archive as they are.
+    /// without a <see cref="ZipSlipException"/> or a <see cref="ZipTooLargeException"/>. This method checks neither
+    /// entry names for Zip Slip (F-4.3) nor the extraction limits (F-4.6), and copies every entry into the new archive as it is.
     /// </remarks>
     /// <param name="encryptedZip">A readable stream positioned at the start of the encrypted archive.</param>
     /// <param name="password">The password of <paramref name="encryptedZip"/>.</param>
