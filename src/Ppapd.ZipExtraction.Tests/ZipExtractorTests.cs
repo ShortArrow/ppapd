@@ -105,6 +105,35 @@ public sealed class ZipExtractorTests : IDisposable
         Assert.Equal(10_000, WrittenFiles().Count);
     }
 
+    [Fact]
+    public void The_default_limits_are_2_gib_and_10000_entries()
+    {
+        Assert.Equal(new ExtractionLimits(2L * 1024 * 1024 * 1024, 10_000), ExtractionLimits.Default);
+    }
+
+    [Fact]
+    public void Extracting_past_the_byte_limit_removes_what_this_zip_wrote_and_keeps_what_was_there()
+    {
+        File.WriteAllText(Path.Combine(destination.FullName, "existing.txt"), "kept\n");
+        using var zip = ZipWith("sub/a.txt", "sub/b.txt");
+        var limits = new ExtractionLimits(MaxTotalBytes: "sample\n".Length * 2 - 1, MaxEntries: 10);
+
+        Assert.Throws<ZipTooLargeException>(() => ZipExtractor.Extract(zip, destination, null, limits));
+
+        Assert.Equal(["existing.txt"], destination.EnumerateFileSystemInfos("*", SearchOption.AllDirectories).Select(info => info.Name));
+    }
+
+    [Fact]
+    public void Extracting_exactly_up_to_the_byte_limit_writes_every_file()
+    {
+        using var zip = ZipWith("sub/a.txt", "sub/b.txt");
+        var limits = new ExtractionLimits(MaxTotalBytes: "sample\n".Length * 2, MaxEntries: 10);
+
+        ZipExtractor.Extract(zip, destination, null, limits);
+
+        Assert.Equal(["sub/a.txt", "sub/b.txt"], WrittenFiles().Keys);
+    }
+
     private static MemoryStream ZipWith(params string[] entryNames) =>
         ZipOf(entryNames.ToDictionary(name => name, _ => Encoding.UTF8.GetBytes("sample\n")));
 
