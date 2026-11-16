@@ -31,14 +31,13 @@ public static class ZipExtractor
     /// The archive holds more than 10,000 entries, or its files add up to more than 2 GiB as actually extracted.
     /// </exception>
     public static void Extract(Stream zip, DirectoryInfo destination, string? password = null) =>
-        _ = Extract(zip, destination, password, ExtractionLimits.Default);
+        Extract(zip, destination, password, ExtractionLimits.Default);
 
     /// <summary>
     /// <see cref="Extract(Stream, DirectoryInfo, string?)"/> under <paramref name="limits"/> in place of
     /// <see cref="ExtractionLimits.Default"/>.
     /// </summary>
-    /// <returns>The files and folders this call created, in the order created.</returns>
-    internal static List<FileSystemInfo> Extract(Stream zip, DirectoryInfo destination, string? password, ExtractionLimits limits)
+    internal static void Extract(Stream zip, DirectoryInfo destination, string? password, ExtractionLimits limits)
     {
         using var archive = Open(zip, password);
         var entries = archive.Entries.ToList();
@@ -69,7 +68,6 @@ public static class ZipExtractor
             Remove(created);
             throw;
         }
-        return created;
     }
 
     /// <summary>Deletes <paramref name="created"/>, given in the order created, newest first so each folder is empty when reached.</summary>
@@ -108,7 +106,7 @@ public static class ZipExtractor
     }
 
     /// <summary>Creates <paramref name="folder"/> and its missing parents, adding each one made to <paramref name="created"/>, outermost first.</summary>
-    private static void CreateMissingFolders(DirectoryInfo folder, List<FileSystemInfo> created)
+    internal static void CreateMissingFolders(DirectoryInfo folder, List<FileSystemInfo> created)
     {
         var missing = new Stack<DirectoryInfo>();
         for (var current = folder; current is { Exists: false }; current = current.Parent)
