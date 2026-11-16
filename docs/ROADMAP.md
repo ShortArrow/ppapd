@@ -16,4 +16,4 @@
 
 作る段が来たら足す。足したらここから消す。
 
-1. **Zip Slip で拒んだ ZIP は圧縮し直さない**: デーモンを作る段で、`ZipExtractor.Extract` が `ZipSlipException` で拒んだ ZIP について、`ZipRepacker.Repack` が呼ばれないことを確かめる。`Repack` は Zip Slip の名前を調べず、`Extract` を通った ZIP だけを受け取る前提で作っている（PRD の F-4.3、F-4.4）。
+1. **展開で拒んだ ZIP は圧縮し直さない**: デーモンを作る段で、`ZipExtractor.Extract` が `ZipSlipException` か `ZipTooLargeException` で拒んだ ZIP について、`ZipRepacker.Repack` が呼ばれないことを確かめる。`Repack` は Zip Slip の名前も展開の上限も調べず、`Extract` を通った ZIP だけを受け取る前提で作っている（PRD の F-4.3、F-4.4、F-4.6）。
