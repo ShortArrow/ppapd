@@ -23,7 +23,8 @@ public static class ZipExtractor
     /// An entry name points outside <paramref name="destination"/>; nothing has been written.
     /// </exception>
     /// <exception cref="ZipTooLargeException">
-    /// The archive holds more than 10,000 entries; nothing has been written.
+    /// The archive holds more than 10,000 entries, or its files add up to more than 2 GiB as actually extracted;
+    /// whatever this call wrote has been removed, and what was in <paramref name="destination"/> before is kept.
     /// </exception>
     public static void Extract(Stream zip, DirectoryInfo destination, string? password = null) =>
         Extract(zip, destination, password, ExtractionLimits.Default);
@@ -45,11 +46,72 @@ public static class ZipExtractor
             throw new ZipSlipException();
         }
 
-        var options = new ExtractionOptions(extractFullPath: true, overwrite: false);
-        foreach (var entry in entries.Where(entry => !entry.IsDirectory))
+        var created = new List<FileSystemInfo>();
+        try
         {
-            entry.WriteToDirectory(destination.FullName, options);
+            long total = 0;
+            foreach (var entry in entries.Where(entry => !entry.IsDirectory))
+            {
+                var file = TargetOf(entry.Key ?? string.Empty, destination);
+                CreateMissingFolders(file.Directory!, created);
+                using var output = new FileStream(file.FullName, FileMode.CreateNew);
+                created.Add(file);
+                using var input = entry.OpenEntryStream();
+                total = CopyWithinLimit(input, output, total, limits.MaxTotalBytes);
+            }
         }
+        catch (ZipTooLargeException)
+        {
+            foreach (var info in Enumerable.Reverse(created))
+            {
+                info.Delete();
+            }
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// The file an entry named <paramref name="name"/> is written to. The folder part is resolved on its own, as
+    /// SharpCompress's <c>WriteToDirectory</c> does, so that Windows trims parts such as <c>.. </c> the way F-4.3 was tested.
+    /// </summary>
+    private static FileInfo TargetOf(string name, DirectoryInfo destination)
+    {
+        var folder = Path.GetFullPath(Path.Combine(destination.FullName, Path.GetDirectoryName(name) ?? string.Empty));
+        return new FileInfo(Path.Combine(folder, Path.GetFileName(name)));
+    }
+
+    /// <summary>Creates <paramref name="folder"/> and its missing parents, adding each one made to <paramref name="created"/>, outermost first.</summary>
+    private static void CreateMissingFolders(DirectoryInfo folder, List<FileSystemInfo> created)
+    {
+        var missing = new Stack<DirectoryInfo>();
+        for (var current = folder; current is { Exists: false }; current = current.Parent)
+        {
+            missing.Push(current);
+        }
+        foreach (var directory in missing)
+        {
+            directory.Create();
+            created.Add(directory);
+        }
+    }
+
+    /// <summary>
+    /// Copies <paramref name="input"/> to <paramref name="output"/> and returns <paramref name="writtenSoFar"/> plus the bytes copied.
+    /// </summary>
+    /// <exception cref="ZipTooLargeException">The running total would pass <paramref name="maxTotalBytes"/>; the excess is not written.</exception>
+    private static long CopyWithinLimit(Stream input, Stream output, long writtenSoFar, long maxTotalBytes)
+    {
+        var buffer = new byte[81920];
+        for (int read; (read = input.Read(buffer)) > 0;)
+        {
+            writtenSoFar += read;
+            if (writtenSoFar > maxTotalBytes)
+            {
+                throw new ZipTooLargeException();
+            }
+            output.Write(buffer, 0, read);
+        }
+        return writtenSoFar;
     }
 
     /// <summary>
