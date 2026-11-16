@@ -65,6 +65,18 @@ public sealed class ZipDeliveryTests : IDisposable
         Assert.StartsWith("「図面一式.zip」は配送しませんでした。", File.ReadAllText(Path.Combine(destination.FullName, "図面一式.zip.blocked.txt")));
     }
 
+    [Fact]
+    public void Repacking_failing_on_an_entry_named_like_the_zip_removes_what_this_zip_wrote_and_keeps_what_was_there()
+    {
+        File.WriteAllText(Path.Combine(destination.FullName, "existing.txt"), "kept\n");
+        var zip = SaveZipWith("見積書.zip", "readme.txt", "図面/A-001.txt", "見積書.zip");
+
+        Assert.ThrowsAny<IOException>(() => ZipDelivery.Deliver(zip, destination, SampleFixtures.Password));
+
+        Assert.Equal(["existing.txt"], WrittenFiles().Keys);
+        Assert.Empty(destination.EnumerateDirectories());
+    }
+
     /// <summary>Saves into the download folder an unencrypted ZIP holding each of <paramref name="entryNames"/>.</summary>
     private FileInfo SaveZipWith(string zipName, params string[] entryNames)
     {
