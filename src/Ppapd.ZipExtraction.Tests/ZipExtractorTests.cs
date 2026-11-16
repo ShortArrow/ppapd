@@ -49,6 +49,18 @@ public sealed class ZipExtractorTests : IDisposable
     }
 
     [Theory]
+    [InlineData("ppap-zipcrypto-cp932.zip")]
+    [InlineData("ppap-aes256-cp932.zip")]
+    public void Extracting_an_encrypted_zip_without_the_utf8_flag_reads_its_names_as_cp932(string sample)
+    {
+        using var zip = File.OpenRead(SampleFixtures.Path(sample));
+
+        ZipExtractor.Extract(zip, destination, SampleFixtures.Password);
+
+        Assert.Equal(SampleFixtures.ExpectedFiles(), WrittenFiles());
+    }
+
+    [Theory]
     [InlineData("../outside.txt")]
     [InlineData(@"..\outside.txt")]
     [InlineData(@"C:\outside.txt")]

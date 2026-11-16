@@ -6,10 +6,14 @@ namespace Ppapd.ZipExtraction.Tests;
 
 public sealed class ZipRepackerTests
 {
-    [Fact]
-    public void Repacking_a_zipcrypto_zip_writes_its_files_without_a_password_under_utf8_names_with_its_sha256_as_comment()
+    [Theory]
+    [InlineData("ppap-zipcrypto-utf8.zip")]
+    [InlineData("ppap-zipcrypto-cp932.zip")]
+    [InlineData("ppap-aes256-utf8.zip")]
+    [InlineData("ppap-aes256-cp932.zip")]
+    public void Repacking_an_encrypted_zip_writes_its_files_without_a_password_under_utf8_names_with_its_sha256_as_comment(string sample)
     {
-        var encrypted = File.ReadAllBytes(SampleFixtures.Path("ppap-zipcrypto-utf8.zip"));
+        var encrypted = File.ReadAllBytes(SampleFixtures.Path(sample));
         using var output = new MemoryStream();
 
         ZipRepacker.Repack(new MemoryStream(encrypted), SampleFixtures.Password, output);
