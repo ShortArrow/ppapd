@@ -10,4 +10,8 @@
     <PackageReference Include="SharpCompress" Version="0.50.7" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Ppapd.ZipExtraction.Tests" />
+  </ItemGroup>
+
 </Project>

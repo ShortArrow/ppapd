@@ -12,9 +12,6 @@ public static class ZipExtractor
     /// <summary>The code page Japanese Windows uses for entry names stored without the UTF-8 flag (F-4.2).</summary>
     private static readonly Encoding Cp932 = CodePagesEncodingProvider.Instance.GetEncoding(932)!;
 
-    /// <summary>The most entries, folders included, a ZIP may hold (F-4.6).</summary>
-    private const int MaxEntries = 10_000;
-
     /// <summary>
     /// Writes every file entry of <paramref name="zip"/> under <paramref name="destination"/>,
     /// keeping the folder structure stored in the archive.
@@ -28,11 +25,18 @@ public static class ZipExtractor
     /// <exception cref="ZipTooLargeException">
     /// The archive holds more than 10,000 entries; nothing has been written.
     /// </exception>
-    public static void Extract(Stream zip, DirectoryInfo destination, string? password = null)
+    public static void Extract(Stream zip, DirectoryInfo destination, string? password = null) =>
+        Extract(zip, destination, password, ExtractionLimits.Default);
+
+    /// <summary>
+    /// <see cref="Extract(Stream, DirectoryInfo, string?)"/> under <paramref name="limits"/> in place of
+    /// <see cref="ExtractionLimits.Default"/>.
+    /// </summary>
+    internal static void Extract(Stream zip, DirectoryInfo destination, string? password, ExtractionLimits limits)
     {
         using var archive = Open(zip, password);
         var entries = archive.Entries.ToList();
-        if (entries.Count > MaxEntries)
+        if (entries.Count > limits.MaxEntries)
         {
             throw new ZipTooLargeException();
         }
