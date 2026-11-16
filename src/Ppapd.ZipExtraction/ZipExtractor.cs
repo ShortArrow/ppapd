@@ -16,6 +16,10 @@ public static class ZipExtractor
     /// Writes every file entry of <paramref name="zip"/> under <paramref name="destination"/>,
     /// keeping the folder structure stored in the archive.
     /// </summary>
+    /// <remarks>
+    /// Whenever this call throws, whatever it wrote has been removed and what was in <paramref name="destination"/>
+    /// before is kept (F-4.8), so the same archive can be extracted again into the same folder.
+    /// </remarks>
     /// <param name="zip">A readable stream positioned at the start of the archive.</param>
     /// <param name="destination">An existing folder to write into.</param>
     /// <param name="password">The password of an encrypted archive; <c>null</c> for an unencrypted one.</param>
@@ -23,8 +27,7 @@ public static class ZipExtractor
     /// An entry name points outside <paramref name="destination"/>; nothing has been written.
     /// </exception>
     /// <exception cref="ZipTooLargeException">
-    /// The archive holds more than 10,000 entries, or its files add up to more than 2 GiB as actually extracted;
-    /// whatever this call wrote has been removed, and what was in <paramref name="destination"/> before is kept.
+    /// The archive holds more than 10,000 entries, or its files add up to more than 2 GiB as actually extracted.
     /// </exception>
     public static void Extract(Stream zip, DirectoryInfo destination, string? password = null) =>
         Extract(zip, destination, password, ExtractionLimits.Default);
@@ -60,7 +63,7 @@ public static class ZipExtractor
                 total = CopyWithinLimit(input, output, total, limits.MaxTotalBytes);
             }
         }
-        catch (ZipTooLargeException)
+        catch
         {
             foreach (var info in Enumerable.Reverse(created))
             {
