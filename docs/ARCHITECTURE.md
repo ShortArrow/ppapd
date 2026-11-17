@@ -155,12 +155,12 @@ sequenceDiagram
 | データ | 置き場所 | 期間 |
 | --- | --- | --- |
 | 本文、パスワード、平文のアドレスとドメイン | デーモンのメモリ | メッセージの処理中だけ |
-| 待機中の ZIP の記録（ダウンロードフォルダの下のパス、SHA-256、MessageId、`ConversationId`、受信日時、アドレスとドメインの HMAC-SHA256） | SQLite | ペアが揃うか、破棄の期限まで |
+| 待機中の ZIP の記録（ダウンロードフォルダの下のパス、SHA-256、MessageId、`ConversationId`、受信日時、アドレスとドメインの HMAC-SHA256） | SQLite（`%LOCALAPPDATA%\ppapd\ppapd.db`） | ペアが揃うか、破棄の期限まで |
 | 待機中の暗号化された ZIP | ダウンロードフォルダ | ペアが揃うまで |
-| 待機中のパスワード候補（DPAPI で暗号化） | SQLite | 解凍を試すか、破棄の期限まで |
-| 配送台帳（MessageId、ファイルの SHA-256、配送先パス、ファイル名一覧） | SQLite | 無期限 |
+| 待機中のパスワード候補（DPAPI で暗号化） | SQLite（`%LOCALAPPDATA%\ppapd\ppapd.db`） | 解凍を試すか、破棄の期限まで |
+| 配送台帳（MessageId、ファイルの SHA-256、配送先パス、ファイル名一覧） | SQLite（`%LOCALAPPDATA%\ppapd\ppapd.db`） | 無期限 |
 | HMAC の鍵 | 鍵ファイル（DPAPI で保護） | 無期限 |
-| 振り分けの規則、送信者の別名 | `rules.yaml` | 利用者が編集する |
+| 振り分けの規則、送信者の別名 | `%LOCALAPPDATA%\ppapd\rules.yaml` | 利用者が編集する |
 | ダウンロードした添付とリンク先のファイル | ダウンロードフォルダ | 配送まで |
 | 展開したファイルと、パスワードを外して圧縮し直した ZIP | `%LOCALAPPDATA%\ppapd\work\` の下に ZIP の処理ごとに作る作業フォルダー。利用者本人だけが読める権限で作る | その ZIP の処理の間だけ。成功しても失敗しても消し、デーモンが落ちて残った分は次の起動時に消す |
 | 配送したファイル | 配送先フォルダ | 利用者が管理する |
