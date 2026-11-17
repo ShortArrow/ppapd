@@ -39,7 +39,8 @@ public sealed class WorkFolders(DirectoryInfo root)
 
     /// <summary>
     /// Deletes every work folder under the root whose lock nobody holds, that is, those left when a daemon stopped
-    /// partway. Folders other daemons are using are kept.
+    /// partway. Folders other daemons are using are kept, and one that cannot be deleted yet is skipped; this never throws
+    /// for a single folder, so the daemon still starts.
     /// </summary>
     public void RemoveLeftovers()
     {
@@ -58,7 +59,14 @@ public sealed class WorkFolders(DirectoryInfo root)
             {
                 continue;
             }
-            new WorkFolder(folder, held).Dispose();
+            try
+            {
+                new WorkFolder(folder, held).Dispose();
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException)
+            {
+                // Something else still holds a file in it; the next start tries again.
+            }
         }
     }
 
@@ -108,20 +116,27 @@ public sealed class WorkFolder : IDisposable
     public DirectoryInfo Repacked { get; }
 
     /// <summary>Deletes everything in the work folder while still holding its lock, then releases the lock and removes the folder.</summary>
+    /// <exception cref="IOException">Something still holds a file in the folder; the lock is released all the same.</exception>
     public void Dispose()
     {
-        foreach (var info in folder.EnumerateFileSystemInfos().Where(info => info.Name != WorkFolders.LockFileName))
+        try
         {
-            if (info is DirectoryInfo directory)
+            foreach (var info in folder.EnumerateFileSystemInfos().Where(info => info.Name != WorkFolders.LockFileName))
             {
-                directory.Delete(recursive: true);
-            }
-            else
-            {
-                info.Delete();
+                if (info is DirectoryInfo directory)
+                {
+                    directory.Delete(recursive: true);
+                }
+                else
+                {
+                    info.Delete();
+                }
             }
         }
-        held.Dispose();
+        finally
+        {
+            held.Dispose();
+        }
         try
         {
             folder.Delete();

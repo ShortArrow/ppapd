@@ -57,7 +57,7 @@ internal sealed class MessageHandler(
 
     private IEnumerable<(string, JsonNode?)> Answer(JsonObject request) => (string?)request["type"] switch
     {
-        "match" => [("matches", DeliveryFolder.Matches(settings().Rules, MailOf(request).Metadata))],
+        "match" => [("matches", Match(MailOf(request)))],
         "download" => [("state", Name(Download(MailOf(request), Text(request, "path"))))],
         "status" => [("states", States(request))],
         "reveal" => Reveal(Text(request, "messageId")),
@@ -89,9 +89,61 @@ internal sealed class MessageHandler(
             throw new RefusedException("Pairing a ZIP with its password is not implemented yet.");
         }
         var folder = FolderFor(current.Rules, mail);
-        folder.Create();
-        ledger.Record(isZip ? DeliverZip(mail, file, sha256, folder) : DeliverFile(mail, file, sha256, folder));
+        var created = CreateMissing(folder);
+        try
+        {
+            ledger.Record(isZip ? DeliverZip(mail, file, sha256, folder) : DeliverFile(mail, file, sha256, folder));
+        }
+        catch
+        {
+            RemoveIfEmpty(created);
+            throw;
+        }
         return ledger.StateOf(mail.MessageId);
+    }
+
+    private bool Match(Mail mail)
+    {
+        var decision = DeliveryFolder.Matches(settings().Rules, mail.Metadata);
+        LogTimedOut(decision.TimedOut);
+        return decision.Matches;
+    }
+
+    private void LogTimedOut(IEnumerable<ProjectRule> rules)
+    {
+        foreach (var rule in rules)
+        {
+            log($"subject_regex ran past {DeliveryFolder.MatchTimeout.TotalMilliseconds} ms and counted as not matching: {rule.SubjectRegex}");
+        }
+    }
+
+    /// <summary>Creates <paramref name="folder"/> and its missing parents (F-6.1).</summary>
+    /// <returns>The folders created, outermost first.</returns>
+    private static List<DirectoryInfo> CreateMissing(DirectoryInfo folder)
+    {
+        var missing = new List<DirectoryInfo>();
+        for (var current = folder; current is { Exists: false }; current = current.Parent)
+        {
+            missing.Insert(0, current);
+        }
+        folder.Create();
+        return missing;
+    }
+
+    /// <summary>Removes the folders a failed delivery created, innermost first, leaving any that something else filled meanwhile (F-4.8).</summary>
+    private static void RemoveIfEmpty(List<DirectoryInfo> created)
+    {
+        foreach (var folder in Enumerable.Reverse(created))
+        {
+            try
+            {
+                folder.Delete();
+            }
+            catch (IOException)
+            {
+                return;
+            }
+        }
     }
 
     private DirectoryInfo FolderFor(DeliveryRules rules, Mail mail)
@@ -99,10 +151,7 @@ internal sealed class MessageHandler(
         try
         {
             var decision = DeliveryFolder.For(rules, mail.Metadata);
-            foreach (var rule in decision.TimedOut)
-            {
-                log($"subject_regex ran past {DeliveryFolder.MatchTimeout.TotalMilliseconds} ms and counted as not matching: {rule.SubjectRegex}");
-            }
+            LogTimedOut(decision.TimedOut);
             return decision.Folder;
         }
         catch (OutsideProjectsRootException e)
@@ -145,7 +194,12 @@ internal sealed class MessageHandler(
     private IEnumerable<(string, JsonNode?)> Reveal(string messageId)
     {
         var delivery = ledger.DeliveriesOf(messageId).LastOrDefault() ?? throw new RefusedException("Nothing was delivered for this mail.");
-        reveal(new DirectoryInfo(delivery.Folder));
+        var folder = new DirectoryInfo(delivery.Folder);
+        if (!folder.Exists)
+        {
+            throw new RefusedException("The delivery folder no longer exists.");
+        }
+        reveal(folder);
         return [];
     }
 

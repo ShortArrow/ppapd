@@ -24,11 +24,14 @@ internal static partial class DeliveryFolder
     }
 
     /// <summary>
-    /// Whether one of the <c>projects</c> rules matches <paramref name="mail"/>, the question of F-1.8. A rule whose subject
-    /// match runs out of time does not match.
+    /// Whether one of the <c>projects</c> rules matches <paramref name="mail"/>, the question of F-1.8, and the rules whose
+    /// subject match ran out of time and so did not match.
     /// </summary>
-    public static bool Matches(DeliveryRules rules, MailMetadata mail) =>
-        FirstMatch(rules, DomainOf(mail.SenderAddress), mail.Subject, timedOut: []) is not null;
+    public static MatchDecision Matches(DeliveryRules rules, MailMetadata mail)
+    {
+        var timedOut = new List<ProjectRule>();
+        return new MatchDecision(FirstMatch(rules, DomainOf(mail.SenderAddress), mail.Subject, timedOut) is not null, timedOut);
+    }
 
     /// <summary>How long one rule's <c>subject_regex</c> may run on a subject (docs/PRD.md, §6.2).</summary>
     public static readonly TimeSpan MatchTimeout = TimeSpan.FromMilliseconds(100);
@@ -92,3 +95,6 @@ internal static partial class DeliveryFolder
 
 /// <summary>Where a mail's files go, and the rules whose subject match ran out of time on the way, for the error record.</summary>
 internal sealed record DeliveryDecision(DirectoryInfo Folder, IReadOnlyList<ProjectRule> TimedOut);
+
+/// <summary>Whether a mail matches a rule (F-1.8), and the rules whose subject match ran out of time, for the error record.</summary>
+internal sealed record MatchDecision(bool Matches, IReadOnlyList<ProjectRule> TimedOut);

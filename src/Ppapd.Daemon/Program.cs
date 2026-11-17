@@ -32,4 +32,5 @@ Settings LoadSettings()
 
 void Log(string line) => File.AppendAllText(logPath, $"{DateTimeOffset.Now:O} {line}{Environment.NewLine}");
 
-static void Reveal(DirectoryInfo folder) => Process.Start(new ProcessStartInfo("explorer.exe") { ArgumentList = { folder.FullName } })?.Dispose();
+// Opened through the shell, not as an argument to explorer.exe, which splits its arguments at commas a project name may hold.
+static void Reveal(DirectoryInfo folder) => Process.Start(new ProcessStartInfo(folder.FullName) { UseShellExecute = true })?.Dispose();

@@ -165,6 +165,18 @@ public sealed class MessageHandlerTests : IDisposable
         Assert.Empty(revealed);
     }
 
+    [Fact]
+    public void Reveal_of_a_delivery_folder_the_user_has_since_removed_opens_nothing()
+    {
+        Handler.Handle(Request("download", ("mail", Mail()), ("path", SaveDownload("図面.pdf", "pdf\n"))));
+        DeliveryFolder.Delete(recursive: true);
+
+        var reply = Handler.Handle(Request("reveal", ("messageId", "<m1@example.co.jp>")));
+
+        Assert.False((bool)reply["ok"]!);
+        Assert.Empty(revealed);
+    }
+
     [Theory]
     [InlineData("process")]
     [InlineData("unknown")]
