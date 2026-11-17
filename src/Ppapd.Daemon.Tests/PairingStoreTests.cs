@@ -108,6 +108,24 @@ public sealed class PairingStoreTests : IDisposable
     }
 
     [Fact]
+    public void Candidates_dpapi_cannot_open_are_skipped_and_states_are_read_without_decrypting()
+    {
+        using var store = new PairingStore(DatabasePath);
+        store.AddPasswords(Key("<good>"), ["x"]);
+        using (var connection = new SqliteConnection($"Data Source={DatabasePath}"))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "INSERT INTO waiting_passwords VALUES ('<broken>', 'c1', 's1', 'd1', $received, x'00010203')";
+            command.Parameters.AddWithValue("$received", Noon.ToUnixTimeMilliseconds());
+            command.ExecuteNonQuery();
+        }
+
+        Assert.Equal(DeliveryState.Waiting, store.StateOf("<broken>"));
+        Assert.Equal(DeliveryState.Waiting, store.StateOf("<good>"));
+        Assert.Equal(["<good>"], store.PasswordsFor(Key("<zip>")).Select(passwords => passwords.Mail.MessageId));
+    }
+    [Fact]
     public void Removing_records_leaves_the_mail_in_no_pairing_state()
     {
         using var store = new PairingStore(DatabasePath);

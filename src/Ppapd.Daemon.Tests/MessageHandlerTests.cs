@@ -308,6 +308,31 @@ public sealed class MessageHandlerTests : IDisposable
     }
 
     [Fact]
+    public void A_copy_failing_with_the_right_password_is_an_error_and_the_zip_still_waits()
+    {
+        Handler.Handle(Request("download", ("mail", Mail()), ("path", SaveEncryptedZip())));
+        DeliveryFolder.Create();
+        File.WriteAllText(Path.Combine(DeliveryFolder.FullName, "図面"), "a file where the zip has a folder\n");
+
+        var reply = Handler.Handle(PasswordMail(passwords: ["Sample-Pass-2026"]));
+
+        Assert.False((bool)reply["ok"]!);
+        Assert.Equal(DeliveryState.Waiting, store.StateOf("<m1@example.co.jp>"));
+    }
+
+    [Fact]
+    public void A_copy_failing_after_the_password_mail_came_first_keeps_its_candidates()
+    {
+        Handler.Handle(PasswordMail(passwords: ["Sample-Pass-2026"]));
+        DeliveryFolder.Create();
+        File.WriteAllText(Path.Combine(DeliveryFolder.FullName, "図面"), "a file where the zip has a folder\n");
+
+        var reply = Handler.Handle(Request("download", ("mail", Mail(received: Received.AddMinutes(2))), ("path", SaveEncryptedZip())));
+
+        Assert.False((bool)reply["ok"]!);
+        Assert.Equal(DeliveryState.Waiting, store.StateOf("<pw@example.co.jp>"));
+    }
+    [Fact]
     public void A_zip_changed_while_it_waited_is_not_extracted_and_shows_mismatch()
     {
         var path = SaveEncryptedZip();
