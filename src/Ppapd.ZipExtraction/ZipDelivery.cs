@@ -101,12 +101,35 @@ public static class ZipDelivery
     }
 
     /// <summary>
-    /// Whether <paramref name="existing"/> is a ZIP repacked from the same encrypted ZIP as <paramref name="repacked"/>, told
-    /// by the comment F-4.4 sets; a repacked ZIP differs byte for byte each time it is made.
+    /// Whether <paramref name="existing"/> holds what <paramref name="repacked"/> holds: the comment F-4.4 sets and every
+    /// file, by name and SHA-256. A repacked ZIP differs byte for byte each time it is made, and the comment alone can be
+    /// copied by a ZIP from an earlier mail (F-6.3).
     /// </summary>
     private static bool SameRepack(FileInfo repacked, FileInfo existing) =>
-        CommentOf(existing) is { Length: > 0 } comment && comment == CommentOf(repacked);
+        CommentOf(existing) is { Length: > 0 } comment && comment == CommentOf(repacked)
+        && FilesOf(existing) is { } existingFiles && existingFiles.SequenceEqual(FilesOf(repacked)!);
 
+    /// <summary>Each file of <paramref name="zip"/> as its name and the SHA-256 of its content, by name; <c>null</c> when it is not a ZIP readable without a password.</summary>
+    private static List<(string Name, string Sha256)>? FilesOf(FileInfo zip)
+    {
+        try
+        {
+            using var archive = System.IO.Compression.ZipFile.OpenRead(zip.FullName);
+            return archive.Entries
+                .Where(entry => !entry.FullName.EndsWith('/'))
+                .Select(entry =>
+                {
+                    using var content = entry.Open();
+                    return (entry.FullName, Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(content)));
+                })
+                .OrderBy(file => file.FullName, StringComparer.Ordinal)
+                .ToList();
+        }
+        catch (Exception e) when (e is InvalidDataException or NotSupportedException)
+        {
+            return null;
+        }
+    }
     private static string? CommentOf(FileInfo zip)
     {
         try
