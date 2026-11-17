@@ -233,12 +233,28 @@ projects:
 
 ブラウザ拡張とデーモンは Native Messaging でメッセージをやり取りする。理由は [ADR 003](adr/003-browser-extension.md) にある。
 
-| メッセージ | 用途 |
+どのメッセージも JSON のオブジェクトとする。要求は `type`（下の表のどれか）と `seq`（拡張機能が付ける番号）を持つ。応答は、要求と同じ `seq` と、成功したかを表す `ok`（真偽値）を持ち、失敗のときは `error`（理由の文字列）を添える。
+
+| `type` | 用途 | 要求に含めるもの | 応答に含めるもの |
+| --- | --- | --- | --- |
+| `match` | F-1.8 の問い合わせ。メールが `projects` の規則のどれかに一致するかを返す | `mail` | `matches`（真偽値） |
+| `download` | ダウンロードフォルダの下のパスと、添付またはリンクを含むメールのメタデータを受け取り、配送する | `mail`、`path`（ダウンロードフォルダの下のファイルの絶対パス） | `state` |
+| `process` | パスワード候補のあるメールのメタデータと本文を受け取る | `mail`、`body`（本文）、`passwords`（パスワード候補の配列） | `state` |
+| `status` | `MessageId` の一覧を受け取り、それぞれの配送状態を返す | `messageIds`（配列） | `states`（`MessageId` をキー、`state` を値とするオブジェクト） |
+| `reveal` | `MessageId` を受け取り、配送先フォルダをエクスプローラーで開く | `messageId` | なし |
+
+`mail` は、`messageId`、`conversationId`、`from`（送信者アドレス）、`subject`（件名）、`received`（受信日時。ISO 8601 の文字列）を持つオブジェクトとする。
+
+`state` は次のどれかで、F-2.2 と F-2.4 のバッジの状態に対応する。
+
+| `state` | 意味 |
 | --- | --- |
-| `process` | パスワード候補のあるメールのメタデータと本文を受け取る |
-| `download` | ダウンロードフォルダの下のパスと、添付またはリンクを含むメールのメタデータを受け取る |
-| `status` | `MessageId` の一覧を受け取り、それぞれの配送状態を返す |
-| `reveal` | `MessageId` を受け取り、配送先フォルダをエクスプローラーで開く |
+| `delivered` | 配送済み |
+| `waiting` | 待機中（F-3.2、F-3.6） |
+| `extractFailed` | 解凍失敗（F-3.5） |
+| `mismatch` | 不一致（F-3.4） |
+| `blocked` | ブロックした ZIP がある（F-4.7） |
+| `none` | ppapd が扱っていない |
 
 ## 8. セキュリティ要件
 
