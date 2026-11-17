@@ -185,7 +185,7 @@ public sealed class MessageHandlerTests : IDisposable
     }
 
     [Fact]
-    public void When_rules_yaml_cannot_be_read_every_message_is_answered_with_an_error_and_logged()
+    public void When_rules_yaml_cannot_be_read_a_message_that_needs_it_is_answered_with_an_error_and_logged()
     {
         settings = () => throw new InvalidRulesException("rules.yaml needs projects_root.");
 
@@ -208,6 +208,38 @@ public sealed class MessageHandlerTests : IDisposable
         Assert.DoesNotContain(log, line => line.Contains(subject) || line.Contains("taro@example.co.jp"));
     }
 
+    [Fact]
+    public void A_zip_failing_partway_leaves_no_folder_behind_and_is_answered_with_an_error()
+    {
+        var path = Path.Combine(downloads.FullName, "壊れた.zip");
+        using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
+        {
+            using var stream = archive.CreateEntry("図面/A-001.txt", CompressionLevel.NoCompression).Open();
+            stream.Write("sample\n"u8);
+        }
+        var bytes = File.ReadAllBytes(path);
+        var content = bytes.AsSpan().IndexOf("sample\n"u8);
+        bytes[content] ^= 0xFF;
+        File.WriteAllBytes(path, bytes);
+
+        var reply = Handler.Handle(Request("download", ("mail", Mail()), ("path", path)));
+
+        Assert.False((bool)reply["ok"]!);
+        Assert.Empty(projects.EnumerateFileSystemInfos());
+        Assert.Equal(DeliveryState.None, ledger.StateOf("<m1@example.co.jp>"));
+    }
+
+    [Fact]
+    public void A_subject_rule_that_ran_out_of_time_during_match_is_logged_too()
+    {
+        var rules = settings().Rules with { Projects = [new ProjectRule("Runaway", null, "^(a+)+$")] };
+        settings = () => new Settings(rules, downloads);
+
+        var reply = Handler.Handle(Request("match", ("mail", Mail(subject: new string('a', 40) + "!"))));
+
+        Assert.False((bool)reply["matches"]!);
+        Assert.Contains(log, line => line.Contains("^(a+)+$"));
+    }
     private static JsonObject Request(string type, params (string Name, JsonNode? Value)[] fields)
     {
         var request = new JsonObject { ["type"] = type, ["seq"] = 1 };

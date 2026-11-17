@@ -80,6 +80,23 @@ public sealed class WorkFoldersTests : IDisposable
     }
 
     [Fact]
+    public void A_leftover_that_cannot_be_deleted_yet_is_skipped_and_the_others_are_still_removed()
+    {
+        LeaveFolderOfStoppedProcess("held-open.txt");
+        var stuck = root.EnumerateDirectories().Single();
+        LeaveFolderOfStoppedProcess("partial.txt");
+        using (new FileStream(Path.Combine(stuck.FullName, "held-open.txt"), FileMode.Open, FileAccess.Read, FileShare.None))
+        {
+            new WorkFolders(root).RemoveLeftovers();
+        }
+
+        Assert.Equal([stuck.FullName], root.EnumerateDirectories().Select(folder => folder.FullName));
+
+        new WorkFolders(root).RemoveLeftovers();
+
+        Assert.Empty(root.EnumerateFileSystemInfos());
+    }
+    [Fact]
     public void Removing_leftovers_before_any_work_folder_was_made_does_nothing()
     {
         new WorkFolders(root).RemoveLeftovers();

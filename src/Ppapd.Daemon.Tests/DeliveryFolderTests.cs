@@ -114,7 +114,7 @@ public sealed class DeliveryFolderTests
     [InlineData("taro@example.co.jp", "ご挨拶", false)]
     public void A_mail_matches_when_one_of_the_project_rules_does(string from, string subject, bool matches)
     {
-        Assert.Equal(matches, DeliveryFolder.Matches(Rules, new MailMetadata(from, subject, November12)));
+        Assert.Equal(matches, DeliveryFolder.Matches(Rules, new MailMetadata(from, subject, November12)).Matches);
     }
 
     [Fact]
@@ -122,7 +122,10 @@ public sealed class DeliveryFolderTests
     {
         var rules = Rules with { Projects = [new ProjectRule(Project: "Runaway", FromDomain: null, SubjectRegex: "^(a+)+$")] };
 
-        Assert.False(DeliveryFolder.Matches(rules, new MailMetadata("x@example.co.jp", new string('a', 40) + "!", November12)));
+        var decision = DeliveryFolder.Matches(rules, new MailMetadata("x@example.co.jp", new string('a', 40) + "!", November12));
+
+        Assert.False(decision.Matches);
+        Assert.Equal(rules.Projects, decision.TimedOut);
     }
 
     [Fact]
