@@ -7,13 +7,23 @@ namespace Ppapd.Daemon;
 /// <summary>Answers one message of docs/PRD.md §7 at a time.</summary>
 /// <param name="settings">Reads <c>rules.yaml</c> afresh for each message, so an edit takes effect without a restart.</param>
 /// <param name="ledger">The delivery ledger (F-6.4, F-6.5).</param>
+/// <param name="store">The ZIPs and password candidates waiting for their pair (F-3).</param>
+/// <param name="hashes">Turns sender addresses and domains into the HMACs pairing compares (S-6).</param>
 /// <param name="work">Where ZIPs are extracted before delivery (F-4.8).</param>
+/// <param name="now">The clock that ages waiting records (F-3.2, F-3.6).</param>
 /// <param name="reveal">Opens a delivery folder in Explorer (F-2.3).</param>
 /// <param name="log">
 /// Records an error. Lines hold no body, password, subject or plain address (S-4, S-6), only rules, paths and exception types.
 /// </param>
 internal sealed class MessageHandler(
-    Func<Settings> settings, DeliveryLedger ledger, WorkFolders work, Action<DirectoryInfo> reveal, Action<string> log)
+    Func<Settings> settings,
+    DeliveryLedger ledger,
+    PairingStore store,
+    SenderHashes hashes,
+    WorkFolders work,
+    Func<DateTimeOffset> now,
+    Action<DirectoryInfo> reveal,
+    Action<string> log)
 {
     private static readonly JsonNamingPolicy StateNames = JsonNamingPolicy.CamelCase;
 
@@ -26,6 +36,7 @@ internal sealed class MessageHandler(
         var reply = new JsonObject { ["seq"] = request["seq"]?.DeepClone() };
         try
         {
+            store.Purge(now());
             foreach (var (name, value) in Answer(request))
             {
                 reply[name] = value;
@@ -61,7 +72,7 @@ internal sealed class MessageHandler(
         "download" => [("state", Name(Download(MailOf(request), Text(request, "path"))))],
         "status" => [("states", States(request))],
         "reveal" => Reveal(Text(request, "messageId")),
-        "process" => throw new RefusedException("Pairing a ZIP with its password is not implemented yet."),
+        "process" => [("state", Name(Process(MailOf(request), Strings(request, "passwords"))))],
         _ => throw new RefusedException("Unknown message type."),
     };
 
@@ -86,7 +97,7 @@ internal sealed class MessageHandler(
         var isZip = file.Extension.Equals(".zip", StringComparison.OrdinalIgnoreCase);
         if (isZip && IsEncrypted(file))
         {
-            throw new RefusedException("Pairing a ZIP with its password is not implemented yet.");
+            return WaitOrPair(new WaitingZip(KeyOf(mail), file.FullName, sha256, FolderFor(current.Rules, mail).FullName, PairingState.Waiting));
         }
         var folder = FolderFor(current.Rules, mail);
         var created = CreateMissing(folder);
@@ -101,6 +112,110 @@ internal sealed class MessageHandler(
         }
         return ledger.StateOf(mail.MessageId);
     }
+
+    /// <summary>
+    /// Records an encrypted ZIP as waiting, then opens it with the candidates of the password mails it pairs with, if any
+    /// have arrived (F-3.2, F-3.6). Those candidates are dropped once tried.
+    /// </summary>
+    private DeliveryState WaitOrPair(WaitingZip zip)
+    {
+        store.AddZip(zip);
+        var waiting = store.PasswordsFor(zip.Mail);
+        if (waiting.Count == 0)
+        {
+            return DeliveryState.Waiting;
+        }
+        foreach (var passwords in waiting)
+        {
+            store.RemovePasswords(passwords.Mail.MessageId);
+        }
+        return TryOpen(zip, waiting.SelectMany(passwords => passwords.Candidates).Distinct().ToList());
+    }
+
+    /// <summary>
+    /// Opens the ZIPs a password mail pairs with using its <paramref name="candidates"/>, or, when none is waiting, keeps the
+    /// candidates encrypted until a ZIP arrives (F-3.3 to F-3.6). The body is never kept.
+    /// </summary>
+    /// <returns>The most pressing outcome over the ZIPs tried, or <see cref="DeliveryState.Waiting"/>.</returns>
+    private DeliveryState Process(Mail mail, IReadOnlyList<string> candidates)
+    {
+        if (candidates.Count == 0)
+        {
+            throw new RefusedException("passwords is empty.");
+        }
+        var key = KeyOf(mail);
+        var zips = store.ZipsFor(key);
+        if (zips.Count == 0)
+        {
+            store.AddPasswords(key, candidates);
+            return DeliveryState.Waiting;
+        }
+        return zips.Select(zip => TryOpen(zip, candidates)).MinBy(Urgency);
+    }
+
+    /// <summary>
+    /// Checks that the waiting ZIP is still the one recorded (F-3.3, F-3.4), then tries <paramref name="candidates"/> in turn
+    /// until one delivers it (F-3.5). Each failed try leaves nothing behind (F-4.8).
+    /// </summary>
+    private DeliveryState TryOpen(WaitingZip zip, IReadOnlyList<string> candidates)
+    {
+        FileInfo file;
+        try
+        {
+            file = DownloadPath.Accept(zip.Path, settings().DownloadFolder);
+        }
+        catch (OutsideDownloadFolderException)
+        {
+            return Mismatch(zip);
+        }
+        if (Convert.ToHexStringLower(NumberedCopy.Sha256Of(file)) != zip.Sha256)
+        {
+            return Mismatch(zip);
+        }
+        var folder = new DirectoryInfo(zip.Folder);
+        var created = CreateMissing(folder);
+        foreach (var candidate in candidates)
+        {
+            ZipDeliveryResult result;
+            try
+            {
+                result = ZipDelivery.Deliver(file, folder, candidate, work);
+            }
+            catch (Exception)
+            {
+                continue;
+            }
+            ledger.Record(new Delivery(zip.Mail.MessageId, zip.Sha256, folder.FullName, [.. result.Written, .. result.Found], result.Blocked is not null));
+            store.RemoveZip(zip.Mail.MessageId, zip.Sha256);
+            return ledger.StateOf(zip.Mail.MessageId);
+        }
+        RemoveIfEmpty(created);
+        store.SetState(zip.Mail.MessageId, zip.Sha256, PairingState.ExtractFailed);
+        return DeliveryState.ExtractFailed;
+    }
+
+    private DeliveryState Mismatch(WaitingZip zip)
+    {
+        store.SetState(zip.Mail.MessageId, zip.Sha256, PairingState.Mismatch);
+        return DeliveryState.Mismatch;
+    }
+
+    /// <summary>The badge of a mail: the most pressing of what the ledger and the waiting records know of it.</summary>
+    private DeliveryState StateOf(string messageId) => new[] { ledger.StateOf(messageId), store.StateOf(messageId) }.MinBy(Urgency);
+
+    /// <summary>Lower is more pressing for the user: a blocked ZIP, then a ZIP that cannot be opened, then one still waiting, then a delivery.</summary>
+    private static int Urgency(DeliveryState state) => state switch
+    {
+        DeliveryState.Blocked => 0,
+        DeliveryState.Mismatch => 1,
+        DeliveryState.ExtractFailed => 2,
+        DeliveryState.Waiting => 3,
+        DeliveryState.Delivered => 4,
+        _ => 5,
+    };
+
+    private MailKey KeyOf(Mail mail) => new(
+        mail.MessageId, mail.ConversationId, hashes.OfAddress(mail.From), hashes.OfDomain(mail.From[(mail.From.LastIndexOf('@') + 1)..]), mail.Metadata.Received);
 
     private bool Match(Mail mail)
     {
@@ -185,7 +300,7 @@ internal sealed class MessageHandler(
         foreach (var id in request["messageIds"] as JsonArray ?? throw new RefusedException("messageIds is missing."))
         {
             var messageId = (string?)id ?? throw new RefusedException("messageIds must hold strings.");
-            states[messageId] = Name(ledger.StateOf(messageId));
+            states[messageId] = Name(StateOf(messageId));
         }
         return states;
     }
@@ -208,15 +323,23 @@ internal sealed class MessageHandler(
     private static string Text(JsonObject node, string name) =>
         node[name] is JsonValue value && value.TryGetValue<string>(out var text) ? text : throw new RefusedException($"{name} is missing.");
 
+    private static IReadOnlyList<string> Strings(JsonObject node, string name) =>
+        (node[name] as JsonArray ?? throw new RefusedException($"{name} is missing."))
+            .Select(item => item is JsonValue value && value.TryGetValue<string>(out var text) ? text : throw new RefusedException($"{name} must hold strings."))
+            .ToList();
+
     private static Mail MailOf(JsonObject request)
     {
         var mail = request["mail"] as JsonObject ?? throw new RefusedException("mail is missing.");
+        var from = Text(mail, "from");
         return new Mail(
             Text(mail, "messageId"),
-            new MailMetadata(Text(mail, "from"), Text(mail, "subject"), DateTimeOffset.Parse(Text(mail, "received"), System.Globalization.CultureInfo.InvariantCulture)));
+            Text(mail, "conversationId"),
+            from,
+            new MailMetadata(from, Text(mail, "subject"), DateTimeOffset.Parse(Text(mail, "received"), System.Globalization.CultureInfo.InvariantCulture)));
     }
 
-    private sealed record Mail(string MessageId, MailMetadata Metadata);
+    private sealed record Mail(string MessageId, string ConversationId, string From, MailMetadata Metadata);
 
     /// <summary>A request answered with <c>ok: false</c> and this message as its <c>error</c>.</summary>
     private sealed class RefusedException(string message) : Exception(message);

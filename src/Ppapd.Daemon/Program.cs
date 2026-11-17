@@ -13,8 +13,11 @@ var home = Directory.CreateDirectory(Path.Combine(
 var logPath = Path.Combine(home.FullName, "ppapd.log");
 var rulesPath = Path.Combine(home.FullName, "rules.yaml");
 
-using var ledger = new DeliveryLedger(Path.Combine(home.FullName, "ppapd.db"));
-var handler = new MessageHandler(LoadSettings, ledger, WorkFolders.Default, Reveal, Log);
+var database = Path.Combine(home.FullName, "ppapd.db");
+using var ledger = new DeliveryLedger(database);
+using var store = new PairingStore(database);
+var hashes = SenderHashes.LoadOrCreate(Path.Combine(home.FullName, "hmac.key"));
+var handler = new MessageHandler(LoadSettings, ledger, store, hashes, WorkFolders.Default, () => DateTimeOffset.Now, Reveal, Log);
 using var input = Console.OpenStandardInput();
 using var output = Console.OpenStandardOutput();
 MessageLoop.Run(input, output, handler.Handle, Log);
