@@ -26,7 +26,7 @@ public static class ZipDelivery
             BlockedNotice.Write(destination, zip.Name, reason);
             return reason;
         }
-        CopyInto([folder.Directory, folder.Repacked], destination);
+        CopyInto([(folder.Directory, SameContent), (folder.Repacked, SameRepack)], destination);
         return null;
     }
 
@@ -60,22 +60,25 @@ public static class ZipDelivery
 
     /// <summary>
     /// Copies every file of each of <paramref name="folders"/>, in order, to the same place under <paramref name="destination"/>,
-    /// numbering a name already taken there (F-6.3). Copying, unlike moving, lets each file take the permissions of
-    /// <paramref name="destination"/> in place of the work folder's.
+    /// numbering a name already taken there and skipping a file found there already by its folder's sameness test (F-6.3).
+    /// Copying, unlike moving, lets each file take the permissions of <paramref name="destination"/> in place of the work folder's.
     /// </summary>
     /// <exception cref="Exception">A copy failed; what this call made under <paramref name="destination"/> has been removed.</exception>
-    private static void CopyInto(IEnumerable<DirectoryInfo> folders, DirectoryInfo destination)
+    private static void CopyInto(IEnumerable<(DirectoryInfo Folder, Func<FileInfo, FileInfo, bool> Same)> folders, DirectoryInfo destination)
     {
         var copied = new List<FileSystemInfo>();
         try
         {
-            foreach (var folder in folders)
+            foreach (var (folder, same) in folders)
             {
                 foreach (var file in folder.EnumerateFiles("*", SearchOption.AllDirectories))
                 {
                     var target = new FileInfo(Path.Combine(destination.FullName, Path.GetRelativePath(folder.FullName, file.FullName)));
                     ZipExtractor.CreateMissingFolders(target.Directory!, copied);
-                    copied.Add(NumberedCopy.To(file, target));
+                    if (NumberedCopy.To(file, target, existing => same(file, existing)) is { } written)
+                    {
+                        copied.Add(written);
+                    }
                 }
             }
         }
@@ -83,6 +86,35 @@ public static class ZipDelivery
         {
             ZipExtractor.Remove(copied);
             throw;
+        }
+    }
+
+    private static bool SameContent(FileInfo file, FileInfo existing) =>
+        file.Length == existing.Length && Sha256Of(file).SequenceEqual(Sha256Of(existing));
+
+    /// <summary>
+    /// Whether <paramref name="existing"/> is a ZIP repacked from the same encrypted ZIP as <paramref name="repacked"/>, told
+    /// by the comment F-4.4 sets; a repacked ZIP differs byte for byte each time it is made.
+    /// </summary>
+    private static bool SameRepack(FileInfo repacked, FileInfo existing) =>
+        CommentOf(existing) is { Length: > 0 } comment && comment == CommentOf(repacked);
+
+    private static byte[] Sha256Of(FileInfo file)
+    {
+        using var stream = file.OpenRead();
+        return System.Security.Cryptography.SHA256.HashData(stream);
+    }
+
+    private static string? CommentOf(FileInfo zip)
+    {
+        try
+        {
+            using var archive = System.IO.Compression.ZipFile.OpenRead(zip.FullName);
+            return archive.Comment;
+        }
+        catch (InvalidDataException)
+        {
+            return null;
         }
     }
 }

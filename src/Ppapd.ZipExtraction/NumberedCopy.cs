@@ -5,10 +5,12 @@ public static class NumberedCopy
 {
     /// <summary>
     /// Copies <paramref name="source"/> to <paramref name="target"/>, or, when that name is taken, to the first free of
-    /// <c>name_1.ext</c>, <c>name_2.ext</c>, and so on in the same folder.
+    /// <c>name_1.ext</c>, <c>name_2.ext</c>, and so on in the same folder. When one of the files met on the way is the same
+    /// as <paramref name="source"/> by <paramref name="isSame"/>, copies nothing.
     /// </summary>
-    /// <returns>The file written.</returns>
-    public static FileInfo To(FileInfo source, FileInfo target)
+    /// <param name="isSame">Whether a file already in the folder holds what <paramref name="source"/> holds.</param>
+    /// <returns>The file written, or <c>null</c> when the same file was already there.</returns>
+    public static FileInfo? To(FileInfo source, FileInfo target, Func<FileInfo, bool> isSame)
     {
         for (var number = 0; ; number++)
         {
@@ -17,6 +19,10 @@ public static class NumberedCopy
                 $"{Path.GetFileNameWithoutExtension(target.Name)}_{number}{target.Extension}"));
             if (Path.Exists(candidate.FullName))
             {
+                if (candidate.Exists && isSame(candidate))
+                {
+                    return null;
+                }
                 continue;
             }
             try
@@ -25,7 +31,8 @@ public static class NumberedCopy
             }
             catch (IOException) when (Path.Exists(candidate.FullName))
             {
-                // Another process took this name between the check and the copy; try the next number.
+                // Another process took this name between the check and the copy; look at it as at any other taken name.
+                number--;
             }
         }
     }
