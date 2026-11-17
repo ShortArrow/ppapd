@@ -26,7 +26,7 @@ public sealed class WorkFoldersTests : IDisposable
         Assert.True(first.Directory.Exists);
         Assert.True(second.Directory.Exists);
         Assert.NotEqual(first.Directory.FullName, second.Directory.FullName);
-        Assert.All([first, second], folder => Assert.Equal(root.FullName, folder.Directory.Parent!.FullName));
+        Assert.All([first, second], folder => Assert.StartsWith(root.FullName + Path.DirectorySeparatorChar, folder.Directory.FullName));
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public sealed class WorkFoldersTests : IDisposable
 
         new WorkFolders(root).RemoveLeftovers();
 
-        Assert.Equal([inUse.Directory.FullName], root.EnumerateDirectories().Select(folder => folder.FullName));
+        Assert.Equal([inUse.Directory.Parent!.FullName], root.EnumerateDirectories().Select(folder => folder.FullName));
         Assert.True(File.Exists(Path.Combine(inUse.Directory.FullName, "extracting.txt")));
     }
 

@@ -20,21 +20,14 @@ public static class ZipDelivery
     /// </exception>
     public static BlockReason? Deliver(FileInfo zip, DirectoryInfo destination, string? password, WorkFolders work)
     {
-        var folder = work.Create();
-        try
+        using var folder = work.Create();
+        if (Prepare(zip, folder.Directory, password) is { } reason)
         {
-            if (Prepare(zip, folder, password) is { } reason)
-            {
-                BlockedNotice.Write(destination, zip.Name, reason);
-                return reason;
-            }
-            CopyInto(folder, destination);
-            return null;
+            BlockedNotice.Write(destination, zip.Name, reason);
+            return reason;
         }
-        finally
-        {
-            folder.Delete(recursive: true);
-        }
+        CopyInto(folder.Directory, destination);
+        return null;
     }
 
     /// <summary>Extracts and, given a password, repacks <paramref name="zip"/> into <paramref name="folder"/>.</summary>

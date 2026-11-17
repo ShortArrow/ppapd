@@ -7,26 +7,39 @@ namespace Ppapd.ZipExtraction;
 /// The folders on the user's PC where a ZIP is extracted and repacked before it is delivered (docs/PRD.md, F-4.8;
 /// docs/ARCHITECTURE.md, where data is kept).
 /// </summary>
+/// <remarks>
+/// Several daemons can run at once, one for each browser profile, all sharing the root. A work folder in use holds its
+/// lock file open, so only those left by a daemon that stopped partway have a lock nobody holds.
+/// </remarks>
 /// <param name="root">The folder that holds every work folder.</param>
 public sealed class WorkFolders(DirectoryInfo root)
 {
+    /// <summary>The name of the file each work folder holds open while in use.</summary>
+    public const string LockFileName = ".lock";
+
     /// <summary>The work folders under <c>%LOCALAPPDATA%\ppapd\work</c>.</summary>
     public static WorkFolders Default { get; } = new(new DirectoryInfo(Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "ppapd", "work")));
 
     /// <summary>
     /// Creates a new empty folder under the root, unlike any made before, that only the current user can open
-    /// and that inherits no permission from the root.
+    /// and that inherits no permission from the root. It stays locked until disposed.
     /// </summary>
-    public DirectoryInfo Create()
+    public WorkFolder Create()
     {
         root.Create();
         var folder = new DirectoryInfo(Path.Combine(root.FullName, Guid.NewGuid().ToString("N")));
         folder.Create(CurrentUserOnly());
-        return folder;
+        var held = Lock(folder, FileMode.CreateNew);
+        var files = new DirectoryInfo(Path.Combine(folder.FullName, "files"));
+        files.Create(CurrentUserOnly());
+        return new WorkFolder(folder, files, held);
     }
 
-    /// <summary>Deletes every work folder under the root, such as those left when the daemon stopped partway.</summary>
+    /// <summary>
+    /// Deletes every work folder under the root whose lock nobody holds, that is, those left when a daemon stopped
+    /// partway. Folders other daemons are using are kept.
+    /// </summary>
     public void RemoveLeftovers()
     {
         if (!root.Exists)
@@ -35,9 +48,22 @@ public sealed class WorkFolders(DirectoryInfo root)
         }
         foreach (var folder in root.EnumerateDirectories())
         {
-            folder.Delete(recursive: true);
+            FileStream held;
+            try
+            {
+                held = Lock(folder, FileMode.OpenOrCreate);
+            }
+            catch (IOException)
+            {
+                continue;
+            }
+            new WorkFolder(folder, new DirectoryInfo(Path.Combine(folder.FullName, "files")), held).Dispose();
         }
     }
+
+    /// <summary>Opens the lock file of <paramref name="folder"/> for this process alone; closing it deletes the file.</summary>
+    private static FileStream Lock(DirectoryInfo folder, FileMode mode) =>
+        new(Path.Combine(folder.FullName, LockFileName), mode, FileAccess.ReadWrite, FileShare.None, bufferSize: 1, FileOptions.DeleteOnClose);
 
     private static DirectorySecurity CurrentUserOnly()
     {
@@ -50,5 +76,51 @@ public sealed class WorkFolders(DirectoryInfo root)
             PropagationFlags.None,
             AccessControlType.Allow));
         return security;
+    }
+}
+
+/// <summary>One work folder of <see cref="WorkFolders"/>, locked while this object lives.</summary>
+/// <remarks>
+/// The lock file sits beside <see cref="Directory"/>, not in it, so that nothing extracted can collide with it
+/// and nothing copied out of <see cref="Directory"/> includes it.
+/// </remarks>
+public sealed class WorkFolder : IDisposable
+{
+    private readonly DirectoryInfo folder;
+    private readonly FileStream held;
+
+    internal WorkFolder(DirectoryInfo folder, DirectoryInfo files, FileStream held)
+    {
+        this.folder = folder;
+        this.held = held;
+        Directory = files;
+    }
+
+    /// <summary>The empty folder to extract and repack into.</summary>
+    public DirectoryInfo Directory { get; }
+
+    /// <summary>Deletes everything in the work folder while still holding its lock, then releases the lock and removes the folder.</summary>
+    public void Dispose()
+    {
+        foreach (var info in folder.EnumerateFileSystemInfos().Where(info => info.Name != WorkFolders.LockFileName))
+        {
+            if (info is DirectoryInfo directory)
+            {
+                directory.Delete(recursive: true);
+            }
+            else
+            {
+                info.Delete();
+            }
+        }
+        held.Dispose();
+        try
+        {
+            folder.Delete();
+        }
+        catch (IOException)
+        {
+            // Another daemon locked the emptied folder as a leftover between the release and this delete; it removes it.
+        }
     }
 }
