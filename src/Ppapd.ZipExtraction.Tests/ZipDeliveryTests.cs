@@ -89,32 +89,65 @@ public sealed class ZipDeliveryTests : IDisposable
     }
 
     [Fact]
-    public void Repacking_failing_on_an_entry_named_like_the_zip_leaves_nothing_of_the_zip_and_keeps_what_was_there()
+    public void An_entry_named_like_the_zip_and_the_repacked_zip_are_both_delivered_and_the_comment_tells_the_repacked_one()
     {
-        File.WriteAllText(Path.Combine(destination.FullName, "existing.txt"), "kept\n");
-        var zip = SaveZipWith("見積書.zip", "readme.txt", "図面/A-001.txt", "見積書.zip");
+        var zip = SaveZipWith("見積書.zip", "readme.txt", "見積書.zip");
 
-        Assert.ThrowsAny<IOException>(() => ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work));
+        ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work);
 
-        Assert.Equal(["existing.txt"], WrittenFiles().Keys);
-        Assert.Empty(destination.EnumerateDirectories());
+        Assert.Equal(["readme.txt", "見積書.zip", "見積書_1.zip"], WrittenFiles().Keys);
+        Assert.Equal(SampleFixtures.Sha256("sample\n"u8.ToArray()), WrittenFiles()["見積書.zip"]);
+        using var repacked = ZipFile.OpenRead(Path.Combine(destination.FullName, "見積書_1.zip"));
+        Assert.Equal(Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(zip.FullName))), repacked.Comment);
         Assert.Empty(workRoot.EnumerateFileSystemInfos());
     }
 
     [Fact]
-    public void Moving_into_the_destination_failing_on_a_file_already_there_removes_what_was_moved_and_keeps_that_file()
+    public void A_file_already_in_the_destination_is_kept_and_the_delivered_one_gets_the_next_number()
     {
         File.WriteAllText(Path.Combine(destination.FullName, "仕様書.txt"), "kept\n");
-        var zip = new FileInfo(SampleFixtures.Path("ppap-zipcrypto-utf8.zip"));
+        File.WriteAllText(Path.Combine(destination.FullName, "仕様書_1.txt"), "kept too\n");
+        var zip = new FileInfo(SampleFixtures.Path("plain-utf8.zip"));
 
-        Assert.ThrowsAny<IOException>(() => ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work));
+        ZipDelivery.Deliver(zip, destination, password: null, Work);
 
-        Assert.Equal(["仕様書.txt"], WrittenFiles().Keys);
         Assert.Equal("kept\n", File.ReadAllText(Path.Combine(destination.FullName, "仕様書.txt")));
+        Assert.Equal("kept too\n", File.ReadAllText(Path.Combine(destination.FullName, "仕様書_1.txt")));
+        Assert.Equal(SampleFixtures.ExpectedFiles()["仕様書.txt"], WrittenFiles()["仕様書_2.txt"]);
+    }
+
+    [Fact]
+    public void Delivering_the_same_zip_twice_numbers_every_file_of_the_second_delivery_inside_the_same_folders()
+    {
+        var zip = new FileInfo(SampleFixtures.Path("ppap-zipcrypto-utf8.zip"));
+        ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work);
+
+        ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work);
+
+        var expected = SampleFixtures.ExpectedFiles().Keys
+            .SelectMany(name => new[] { name, Numbered(name) })
+            .Append(zip.Name).Append(Numbered(zip.Name))
+            .Order(StringComparer.Ordinal);
+        Assert.Equal(expected, WrittenFiles().Keys);
+        Assert.Equal(["図面"], destination.EnumerateDirectories().Select(folder => folder.Name));
+    }
+
+    [Fact]
+    public void Copying_into_the_destination_failing_partway_removes_what_was_copied_and_keeps_what_was_there()
+    {
+        File.WriteAllText(Path.Combine(destination.FullName, "図面"), "a file where the zip has a folder\n");
+        var zip = new FileInfo(SampleFixtures.Path("plain-utf8.zip"));
+
+        Assert.ThrowsAny<IOException>(() => ZipDelivery.Deliver(zip, destination, password: null, Work));
+
+        Assert.Equal(["図面"], WrittenFiles().Keys);
         Assert.Empty(destination.EnumerateDirectories());
         Assert.Empty(workRoot.EnumerateFileSystemInfos());
     }
 
+    /// <summary><paramref name="name"/> with <c>_1</c> before its extension, as F-6.3 numbers it.</summary>
+    private static string Numbered(string name) =>
+        Path.ChangeExtension(name, null) + "_1" + Path.GetExtension(name);
     /// <summary>Saves into the download folder an unencrypted ZIP holding each of <paramref name="entryNames"/>.</summary>
     private FileInfo SaveZipWith(string zipName, params string[] entryNames)
     {
