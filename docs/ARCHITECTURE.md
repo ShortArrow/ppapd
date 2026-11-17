@@ -155,7 +155,7 @@ sequenceDiagram
 | データ | 置き場所 | 期間 |
 | --- | --- | --- |
 | 本文、パスワード、平文のアドレスとドメイン | デーモンのメモリ | メッセージの処理中だけ |
-| 待機中の ZIP の記録（ダウンロードフォルダの下のパス、SHA-256、MessageId、`ConversationId`、受信日時、アドレスとドメインの HMAC-SHA256） | SQLite（`%LOCALAPPDATA%\ppapd\ppapd.db`） | ペアが揃うか、破棄の期限まで |
+| 待機中の ZIP の記録（ダウンロードフォルダの下のパス、SHA-256、MessageId、`ConversationId`、受信日時、アドレスとドメインの HMAC-SHA256、ZIP メールから決めた配送先パス、待機中・解凍失敗・不一致のどれか） | SQLite（`%LOCALAPPDATA%\ppapd\ppapd.db`） | ペアが揃うか、破棄の期限まで |
 | 待機中の暗号化された ZIP | ダウンロードフォルダ | ペアが揃うまで |
 | 待機中のパスワード候補（DPAPI で暗号化） | SQLite（`%LOCALAPPDATA%\ppapd\ppapd.db`） | 解凍を試すか、破棄の期限まで |
 | 配送台帳（MessageId、ファイルの SHA-256、配送先パス、ファイル名一覧、ブロックした ZIP か） | SQLite（`%LOCALAPPDATA%\ppapd\ppapd.db`） | 無期限 |
