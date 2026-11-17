@@ -102,33 +102,57 @@ public static class ZipDelivery
 
     /// <summary>
     /// Whether <paramref name="existing"/> holds what <paramref name="repacked"/> holds: the comment F-4.4 sets and every
-    /// file, by name and SHA-256. A repacked ZIP differs byte for byte each time it is made, and the comment alone can be
-    /// copied by a ZIP from an earlier mail (F-6.3).
+    /// file, by name, size and SHA-256. A repacked ZIP differs byte for byte each time it is made, and the comment alone can
+    /// be copied by a ZIP from an earlier mail (F-6.3).
     /// </summary>
-    private static bool SameRepack(FileInfo repacked, FileInfo existing) =>
-        CommentOf(existing) is { Length: > 0 } comment && comment == CommentOf(repacked)
-        && FilesOf(existing) is { } existingFiles && existingFiles.SequenceEqual(FilesOf(repacked)!);
-
-    /// <summary>Each file of <paramref name="zip"/> as its name and the SHA-256 of its content, by name; <c>null</c> when it is not a ZIP readable without a password.</summary>
-    private static List<(string Name, string Sha256)>? FilesOf(FileInfo zip)
+    /// <remarks>
+    /// <paramref name="existing"/> may be any ZIP, even a decompression bomb delivered as an inner ZIP (F-4.5), so it is read
+    /// no further than <paramref name="repacked"/>, which already passed the extraction limits (F-4.6): names and stated
+    /// sizes are compared first, and each file is read to at most one byte past its counterpart.
+    /// </remarks>
+    private static bool SameRepack(FileInfo repacked, FileInfo existing)
     {
+        if (CommentOf(existing) is not { Length: > 0 } comment || comment != CommentOf(repacked))
+        {
+            return false;
+        }
         try
         {
-            using var archive = System.IO.Compression.ZipFile.OpenRead(zip.FullName);
-            return archive.Entries
-                .Where(entry => !entry.FullName.EndsWith('/'))
-                .Select(entry =>
-                {
-                    using var content = entry.Open();
-                    return (entry.FullName, Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(content)));
-                })
-                .OrderBy(file => file.FullName, StringComparer.Ordinal)
-                .ToList();
+            using var ours = System.IO.Compression.ZipFile.OpenRead(repacked.FullName);
+            using var theirs = System.IO.Compression.ZipFile.OpenRead(existing.FullName);
+            var ourFiles = FilesOf(ours);
+            var theirFiles = FilesOf(theirs);
+            return ourFiles.Count == theirFiles.Count
+                && ourFiles.Zip(theirFiles).All(pair => pair.First.FullName == pair.Second.FullName && pair.First.Length == pair.Second.Length)
+                && ourFiles.Zip(theirFiles).All(pair => Sha256Within(pair.First, pair.First.Length) is { } mine && Sha256Within(pair.Second, pair.First.Length) is { } other && mine.SequenceEqual(other));
         }
         catch (Exception e) when (e is InvalidDataException or NotSupportedException)
         {
-            return null;
+            return false;
         }
+    }
+
+    private static List<System.IO.Compression.ZipArchiveEntry> FilesOf(System.IO.Compression.ZipArchive archive) =>
+        archive.Entries.Where(entry => !entry.FullName.EndsWith('/')).OrderBy(entry => entry.FullName, StringComparer.Ordinal).ToList();
+
+    /// <summary>The SHA-256 of <paramref name="entry"/>, or <c>null</c> when it holds more than <paramref name="limit"/> bytes; reads at most one byte past it.</summary>
+    private static byte[]? Sha256Within(System.IO.Compression.ZipArchiveEntry entry, long limit)
+    {
+        using var content = entry.Open();
+        using var hash = System.Security.Cryptography.IncrementalHash.CreateHash(System.Security.Cryptography.HashAlgorithmName.SHA256);
+        var buffer = new byte[81920];
+        long total = 0;
+        int read;
+        while ((read = content.Read(buffer, 0, (int)Math.Min(buffer.Length, limit + 1 - total))) > 0)
+        {
+            total += read;
+            if (total > limit)
+            {
+                return null;
+            }
+            hash.AppendData(buffer, 0, read);
+        }
+        return hash.GetHashAndReset();
     }
     private static string? CommentOf(FileInfo zip)
     {

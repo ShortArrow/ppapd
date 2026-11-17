@@ -147,6 +147,28 @@ public sealed class ZipDeliveryTests : IDisposable
         Assert.Equal(SampleFixtures.ExpectedFiles().Keys, real.Entries.Where(entry => !entry.FullName.EndsWith('/')).Select(entry => entry.FullName).Order(StringComparer.Ordinal));
     }
     [Fact]
+    public void A_look_alike_zip_whose_entry_holds_more_than_its_header_says_is_read_no_further_than_the_repacked_one()
+    {
+        var zip = new FileInfo(SampleFixtures.Path("ppap-zipcrypto-utf8.zip"));
+        var repackedSize = (int)RepackedEntryLength(zip, "readme.txt");
+        var lookAlike = Path.Combine(destination.FullName, zip.Name);
+        using (var archive = ZipFile.Open(lookAlike, ZipArchiveMode.Create))
+        {
+            archive.Comment = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(zip.FullName)));
+            foreach (var name in SampleFixtures.ExpectedFiles().Keys)
+            {
+                using var stream = archive.CreateEntry(name).Open();
+                stream.Write(name == "readme.txt" ? new byte[64 * 1024 * 1024] : Encoding.UTF8.GetBytes("x"));
+            }
+        }
+        var started = System.Diagnostics.Stopwatch.StartNew();
+
+        ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work);
+
+        Assert.True(File.Exists(Path.Combine(destination.FullName, Path.GetFileNameWithoutExtension(zip.Name) + "_1.zip")));
+        Assert.True(repackedSize < 1024);
+    }
+    [Fact]
     public void A_file_whose_content_matches_a_numbered_one_already_there_is_not_delivered_again()
     {
         File.WriteAllText(Path.Combine(destination.FullName, "仕様書.txt"), "different\n");
@@ -219,6 +241,16 @@ public sealed class ZipDeliveryTests : IDisposable
         var result = ZipDelivery.Deliver(zip, destination, password: null, Work);
 
         Assert.Equal(["見積書.zip.blocked.txt"], result.Written);
+    }
+
+    private static long RepackedEntryLength(FileInfo zip, string name)
+    {
+        using var source = zip.OpenRead();
+        using var output = new MemoryStream();
+        ZipRepacker.Repack(source, SampleFixtures.Password, output);
+        output.Position = 0;
+        using var archive = new ZipArchive(output);
+        return archive.GetEntry(name)!.Length;
     }
 
     /// <summary>Saves into the download folder an unencrypted ZIP holding each of <paramref name="entryNames"/>.</summary>
