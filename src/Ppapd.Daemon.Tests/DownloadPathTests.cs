@@ -18,7 +18,15 @@ public sealed class DownloadPathTests : IDisposable
         File.WriteAllText(Path.Combine(temp.CreateSubdirectory("ppapd-other").FullName, "a.zip"), "sample\n");
     }
 
-    public void Dispose() => temp.Delete(recursive: true);
+    /// <summary>Removes the junctions on their own first, because a recursive delete refuses them.</summary>
+    public void Dispose()
+    {
+        foreach (var link in downloads.EnumerateDirectories().Where(folder => folder.Attributes.HasFlag(FileAttributes.ReparsePoint)))
+        {
+            link.Delete();
+        }
+        temp.Delete(recursive: true);
+    }
 
     [Theory]
     [InlineData(@"ppapd\a.zip")]
