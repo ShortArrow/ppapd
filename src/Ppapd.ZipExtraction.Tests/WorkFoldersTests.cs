@@ -20,21 +20,21 @@ public sealed class WorkFoldersTests : IDisposable
     {
         var work = new WorkFolders(root);
 
-        var first = work.Create();
-        var second = work.Create();
+        using var first = work.Create();
+        using var second = work.Create();
 
-        Assert.True(first.Exists);
-        Assert.True(second.Exists);
-        Assert.NotEqual(first.FullName, second.FullName);
-        Assert.All([first, second], folder => Assert.Equal(root.FullName, folder.Parent!.FullName));
+        Assert.True(first.Directory.Exists);
+        Assert.True(second.Directory.Exists);
+        Assert.NotEqual(first.Directory.FullName, second.Directory.FullName);
+        Assert.All([first, second], folder => Assert.Equal(root.FullName, folder.Directory.Parent!.FullName));
     }
 
     [Fact]
     public void A_work_folder_grants_access_to_the_current_user_alone_and_inherits_nothing()
     {
-        var folder = new WorkFolders(root).Create();
+        using var folder = new WorkFolders(root).Create();
 
-        var security = folder.GetAccessControl();
+        var security = folder.Directory.GetAccessControl();
         var rules = security.GetAccessRules(includeExplicit: true, includeInherited: true, typeof(SecurityIdentifier))
             .Cast<FileSystemAccessRule>().ToList();
 
@@ -44,16 +44,39 @@ public sealed class WorkFoldersTests : IDisposable
     }
 
     [Fact]
-    public void Removing_leftovers_deletes_every_work_folder_left_under_the_root()
+    public void Disposing_a_work_folder_deletes_it_with_everything_in_it()
     {
-        var work = new WorkFolders(root);
-        var left = work.Create();
-        File.WriteAllText(Path.Combine(left.FullName, "half-written.txt"), "partial\n");
-        work.Create().CreateSubdirectory("図面");
+        var folder = new WorkFolders(root).Create();
+        File.WriteAllText(Path.Combine(folder.Directory.FullName, "extracted.txt"), "sample\n");
+        folder.Directory.CreateSubdirectory("図面");
 
-        work.RemoveLeftovers();
+        folder.Dispose();
 
         Assert.Empty(root.EnumerateFileSystemInfos());
+    }
+
+    [Fact]
+    public void Removing_leftovers_deletes_every_work_folder_left_by_a_process_that_stopped_partway()
+    {
+        LeaveFolderOfStoppedProcess("half-written.txt");
+        LeaveFolderOfStoppedProcess();
+
+        new WorkFolders(root).RemoveLeftovers();
+
+        Assert.Empty(root.EnumerateFileSystemInfos());
+    }
+
+    [Fact]
+    public void Removing_leftovers_keeps_a_work_folder_another_daemon_is_still_using()
+    {
+        using var inUse = new WorkFolders(root).Create();
+        File.WriteAllText(Path.Combine(inUse.Directory.FullName, "extracting.txt"), "sample\n");
+        LeaveFolderOfStoppedProcess();
+
+        new WorkFolders(root).RemoveLeftovers();
+
+        Assert.Equal([inUse.Directory.FullName], root.EnumerateDirectories().Select(folder => folder.FullName));
+        Assert.True(File.Exists(Path.Combine(inUse.Directory.FullName, "extracting.txt")));
     }
 
     [Fact]
@@ -62,5 +85,19 @@ public sealed class WorkFoldersTests : IDisposable
         new WorkFolders(root).RemoveLeftovers();
 
         Assert.False(root.Exists);
+    }
+
+    /// <summary>
+    /// Leaves under the root what a daemon that stopped partway leaves: a work folder whose lock nobody holds any more,
+    /// holding <paramref name="files"/>.
+    /// </summary>
+    private void LeaveFolderOfStoppedProcess(params string[] files)
+    {
+        var folder = Directory.CreateDirectory(Path.Combine(root.FullName, Guid.NewGuid().ToString("N")));
+        File.WriteAllText(Path.Combine(folder.FullName, WorkFolders.LockFileName), "");
+        foreach (var file in files)
+        {
+            File.WriteAllText(Path.Combine(folder.FullName, file), "partial\n");
+        }
     }
 }
