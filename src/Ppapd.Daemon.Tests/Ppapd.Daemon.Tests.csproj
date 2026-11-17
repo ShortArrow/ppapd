@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <None Include="..\Ppapd.ZipExtraction.Tests\Fixtures\ppap-zipcrypto-utf8.zip" Link="Fixtures\ppap-zipcrypto-utf8.zip" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\Ppapd.ZipExtraction.Tests\Fixtures\ppap-aes256-utf8.zip" Link="Fixtures\ppap-aes256-utf8.zip" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

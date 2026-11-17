@@ -11,7 +11,10 @@ public sealed class MessageHandlerTests : IDisposable
     private readonly DirectoryInfo downloads;
     private readonly DirectoryInfo projects;
     private readonly DeliveryLedger ledger;
+    private readonly PairingStore store;
+    private readonly SenderHashes hashes;
     private readonly List<DirectoryInfo> revealed = [];
+    private DateTimeOffset now = Received.AddHours(1);
     private readonly List<string> log = [];
     private Func<Settings> settings;
 
@@ -20,6 +23,8 @@ public sealed class MessageHandlerTests : IDisposable
         downloads = temp.CreateSubdirectory("downloads");
         projects = temp.CreateSubdirectory("projects");
         ledger = new DeliveryLedger(Path.Combine(temp.FullName, "ppapd.db"));
+        store = new PairingStore(Path.Combine(temp.FullName, "ppapd.db"));
+        hashes = SenderHashes.LoadOrCreate(Path.Combine(temp.FullName, "hmac.key"));
         var rules = new DeliveryRules(
             projects.FullName,
             "_Unsorted",
@@ -28,14 +33,17 @@ public sealed class MessageHandlerTests : IDisposable
         settings = () => new Settings(rules, downloads);
     }
 
+    private static readonly DateTimeOffset Received = new(new DateTime(2026, 11, 12, 12, 0, 0, DateTimeKind.Local));
+
     private MessageHandler Handler => new(
-        settings, ledger, new WorkFolders(temp.CreateSubdirectory("work")), revealed.Add, log.Add);
+        settings, ledger, store, hashes, new WorkFolders(temp.CreateSubdirectory("work")), () => now, revealed.Add, log.Add);
 
     private DirectoryInfo DeliveryFolder => new(Path.Combine(projects.FullName, "P-12345", "ExampleCorp", "20261112"));
 
     public void Dispose()
     {
         ledger.Dispose();
+        store.Dispose();
         Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
         temp.Delete(recursive: true);
     }
@@ -123,15 +131,13 @@ public sealed class MessageHandlerTests : IDisposable
     }
 
     [Fact]
-    public void An_encrypted_zip_without_its_password_is_not_delivered_yet()
+    public void An_encrypted_zip_without_its_password_waits_and_nothing_is_delivered_yet()
     {
-        var path = Path.Combine(downloads.FullName, "ppap.zip");
-        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", "ppap-zipcrypto-utf8.zip"), path);
+        var reply = Handler.Handle(Request("download", ("mail", Mail()), ("path", SaveEncryptedZip())));
 
-        var reply = Handler.Handle(Request("download", ("mail", Mail()), ("path", path)));
-
-        Assert.False((bool)reply["ok"]!);
+        Assert.Equal("waiting", (string)reply["state"]!);
         Assert.False(DeliveryFolder.Exists);
+        Assert.Equal(DeliveryState.Waiting, store.StateOf("<m1@example.co.jp>"));
     }
 
     [Fact]
@@ -177,12 +183,10 @@ public sealed class MessageHandlerTests : IDisposable
         Assert.Empty(revealed);
     }
 
-    [Theory]
-    [InlineData("process")]
-    [InlineData("unknown")]
-    public void A_type_the_daemon_does_not_handle_yet_is_answered_with_an_error(string type)
+    [Fact]
+    public void A_type_the_daemon_does_not_know_is_answered_with_an_error()
     {
-        var reply = Handler.Handle(Request(type, ("mail", Mail())));
+        var reply = Handler.Handle(Request("unknown", ("mail", Mail())));
 
         Assert.False((bool)reply["ok"]!);
         Assert.NotNull((string?)reply["error"]);
@@ -252,6 +256,130 @@ public sealed class MessageHandlerTests : IDisposable
         Assert.False((bool)reply["matches"]!);
         Assert.Contains(log, line => line.Contains("^(a+)+$"));
     }
+    [Fact]
+    public void A_zip_mail_first_then_its_password_mail_delivers_the_zip_with_a_copy_without_the_password()
+    {
+        Handler.Handle(Request("download", ("mail", Mail()), ("path", SaveEncryptedZip())));
+
+        var reply = Handler.Handle(PasswordMail(passwords: ["Sample-Pass-2026"]));
+
+        Assert.Equal("delivered", (string)reply["state"]!);
+        Assert.True(File.Exists(Path.Combine(DeliveryFolder.FullName, "図面", "A-001_平面図.txt")));
+        Assert.True(File.Exists(Path.Combine(DeliveryFolder.FullName, "ppap-zipcrypto-utf8.zip")));
+        Assert.Equal(DeliveryState.Delivered, Status("<m1@example.co.jp>"));
+        Assert.Equal(DeliveryState.None, store.StateOf("<pw@example.co.jp>"));
+    }
+
+    [Fact]
+    public void A_password_mail_first_waits_and_its_zip_mail_then_delivers_and_the_candidates_are_dropped()
+    {
+        var waiting = Handler.Handle(PasswordMail(passwords: ["Sample-Pass-2026"]));
+
+        var reply = Handler.Handle(Request("download", ("mail", Mail(received: Received.AddMinutes(2))), ("path", SaveEncryptedZip("ppap-aes256-utf8.zip"))));
+
+        Assert.Equal("waiting", (string)waiting["state"]!);
+        Assert.Equal("delivered", (string)reply["state"]!);
+        Assert.True(File.Exists(Path.Combine(DeliveryFolder.FullName, "仕様書.txt")));
+        Assert.Empty(store.PasswordsFor(new MailKey("<any>", "c1", "", "", Received)));
+    }
+
+    [Fact]
+    public void Candidates_are_tried_in_turn_until_one_opens_the_zip()
+    {
+        Handler.Handle(Request("download", ("mail", Mail()), ("path", SaveEncryptedZip())));
+
+        var reply = Handler.Handle(PasswordMail(passwords: ["wrong-1", "wrong-2", "Sample-Pass-2026"]));
+
+        Assert.Equal("delivered", (string)reply["state"]!);
+        Assert.Equal(SampleFiles, DeliveredFiles());
+    }
+
+    [Fact]
+    public void When_every_candidate_fails_the_zip_waits_for_a_new_password_mail_and_leaves_nothing_behind()
+    {
+        Handler.Handle(Request("download", ("mail", Mail()), ("path", SaveEncryptedZip())));
+
+        var failed = Handler.Handle(PasswordMail(passwords: ["wrong"]));
+        var reply = Handler.Handle(PasswordMail(passwords: ["Sample-Pass-2026"]));
+
+        Assert.Equal("extractFailed", (string)failed["state"]!);
+        Assert.Equal("delivered", (string)reply["state"]!);
+        Assert.Equal(SampleFiles, DeliveredFiles());
+    }
+
+    [Fact]
+    public void A_zip_changed_while_it_waited_is_not_extracted_and_shows_mismatch()
+    {
+        var path = SaveEncryptedZip();
+        Handler.Handle(Request("download", ("mail", Mail()), ("path", path)));
+        File.AppendAllText(path, "tampered");
+
+        var reply = Handler.Handle(PasswordMail(passwords: ["Sample-Pass-2026"]));
+
+        Assert.Equal("mismatch", (string)reply["state"]!);
+        Assert.False(DeliveryFolder.Exists);
+        Assert.Equal(DeliveryState.Mismatch, Status("<m1@example.co.jp>"));
+    }
+
+    [Fact]
+    public void A_zip_removed_while_it_waited_shows_mismatch()
+    {
+        var path = SaveEncryptedZip();
+        Handler.Handle(Request("download", ("mail", Mail()), ("path", path)));
+        File.Delete(path);
+
+        var reply = Handler.Handle(PasswordMail(passwords: ["Sample-Pass-2026"]));
+
+        Assert.Equal("mismatch", (string)reply["state"]!);
+    }
+
+    [Fact]
+    public void A_password_mail_past_the_window_does_not_pair_and_the_old_zip_record_is_dropped()
+    {
+        Handler.Handle(Request("download", ("mail", Mail()), ("path", SaveEncryptedZip())));
+        now = Received.AddHours(25);
+
+        var reply = Handler.Handle(PasswordMail(received: Received.AddHours(25), passwords: ["Sample-Pass-2026"]));
+
+        Assert.Equal("waiting", (string)reply["state"]!);
+        Assert.False(DeliveryFolder.Exists);
+        Assert.Equal(DeliveryState.None, Status("<m1@example.co.jp>"));
+    }
+
+    [Fact]
+    public void Neither_the_body_nor_a_password_nor_the_sender_address_is_written_to_the_database()
+    {
+        Handler.Handle(PasswordMail(passwords: ["Sample-Pass-2026"]));
+        store.Dispose();
+        ledger.Dispose();
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+
+        var raw = File.ReadAllBytes(Path.Combine(temp.FullName, "ppapd.db"));
+
+        foreach (var secret in new[] { "お世話になっております", "Sample-Pass-2026", "taro@example.co.jp" })
+        {
+            Assert.Equal(-1, raw.AsSpan().IndexOf(Encoding.UTF8.GetBytes(secret)));
+            Assert.Equal(-1, raw.AsSpan().IndexOf(Encoding.Unicode.GetBytes(secret)));
+        }
+    }
+
+    [Fact]
+    public void A_password_mail_without_candidates_is_answered_with_an_error()
+    {
+        var reply = Handler.Handle(PasswordMail(passwords: []));
+
+        Assert.False((bool)reply["ok"]!);
+    }
+
+    private static readonly string[] SampleFiles = ["ppap-zipcrypto-utf8.zip", "readme.txt", "仕様書.txt", "図面/A-001_平面図.txt", "図面/A-002_立面図.txt"];
+
+    private string[] DeliveredFiles() =>
+        DeliveryFolder.EnumerateFiles("*", SearchOption.AllDirectories)
+            .Select(file => Path.GetRelativePath(DeliveryFolder.FullName, file.FullName).Replace('\\', '/'))
+            .Order(StringComparer.Ordinal).ToArray();
+
+    private DeliveryState Status(string messageId) =>
+        Enum.Parse<DeliveryState>((string)Handler.Handle(Request("status", ("messageIds", new JsonArray(messageId))))["states"]![messageId]!, ignoreCase: true);
     private static JsonObject Request(string type, params (string Name, JsonNode? Value)[] fields)
     {
         var request = new JsonObject { ["type"] = type, ["seq"] = 1 };
@@ -262,14 +390,36 @@ public sealed class MessageHandlerTests : IDisposable
         return request;
     }
 
-    private static JsonObject Mail(string subject = "【P-12345】図面送付") => new()
+    private static JsonObject Mail(
+        string subject = "【P-12345】図面送付",
+        string messageId = "<m1@example.co.jp>",
+        string conversation = "c1",
+        string from = "taro@example.co.jp",
+        DateTimeOffset? received = null) => new()
     {
-        ["messageId"] = "<m1@example.co.jp>",
-        ["conversationId"] = "c1",
-        ["from"] = "taro@example.co.jp",
+        ["messageId"] = messageId,
+        ["conversationId"] = conversation,
+        ["from"] = from,
         ["subject"] = subject,
-        ["received"] = new DateTimeOffset(new DateTime(2026, 11, 12, 12, 0, 0, DateTimeKind.Local)).ToString("O"),
+        ["received"] = (received ?? Received).ToString("O"),
     };
+
+    private static JsonObject PasswordMail(string conversation = "c1", DateTimeOffset? received = null, params string[] passwords)
+    {
+        var request = Request(
+            "process",
+            ("mail", Mail(subject: "パスワードのお知らせ", messageId: "<pw@example.co.jp>", conversation: conversation, received: received ?? Received.AddMinutes(1))),
+            ("body", "お世話になっております。パスワード：" + string.Join(" ", passwords)));
+        request["passwords"] = new JsonArray(passwords.Select(password => (JsonNode)password).ToArray());
+        return request;
+    }
+
+    private string SaveEncryptedZip(string sample = "ppap-zipcrypto-utf8.zip")
+    {
+        var path = Path.Combine(downloads.FullName, sample);
+        File.Copy(Path.Combine(AppContext.BaseDirectory, "Fixtures", sample), path, overwrite: true);
+        return path;
+    }
 
     private string SaveDownload(string name, string content)
     {
