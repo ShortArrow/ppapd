@@ -23,6 +23,13 @@ internal static partial class DeliveryFolder
         return new DeliveryDecision(EnsureUnderRoot(path, rules.ProjectsRoot), timedOut);
     }
 
+    /// <summary>
+    /// Whether one of the <c>projects</c> rules matches <paramref name="mail"/>, the question of F-1.8. A rule whose subject
+    /// match runs out of time does not match.
+    /// </summary>
+    public static bool Matches(DeliveryRules rules, MailMetadata mail) =>
+        FirstMatch(rules, DomainOf(mail.SenderAddress), mail.Subject, timedOut: []) is not null;
+
     /// <summary>How long one rule's <c>subject_regex</c> may run on a subject (docs/PRD.md, §6.2).</summary>
     public static readonly TimeSpan MatchTimeout = TimeSpan.FromMilliseconds(100);
 
@@ -41,7 +48,13 @@ internal static partial class DeliveryFolder
 
     private static string DomainOf(string address) => address[(address.LastIndexOf('@') + 1)..];
 
-    private static string ProjectOf(DeliveryRules rules, string domain, string subject, List<ProjectRule> timedOut)
+    private static string ProjectOf(DeliveryRules rules, string domain, string subject, List<ProjectRule> timedOut) =>
+        FirstMatch(rules, domain, subject, timedOut) is var (rule, match)
+            ? Capture().Replace(rule.Project, reference => match?.Groups[int.Parse(reference.Groups[1].Value)].Value ?? "")
+            : rules.UnsortedProject;
+
+    /// <summary>The first rule that matches, with its subject match when it has a <c>subject_regex</c>.</summary>
+    private static (ProjectRule Rule, Match? Match)? FirstMatch(DeliveryRules rules, string domain, string subject, List<ProjectRule> timedOut)
     {
         foreach (var rule in rules.Projects)
         {
@@ -63,9 +76,9 @@ internal static partial class DeliveryFolder
             {
                 continue;
             }
-            return Capture().Replace(rule.Project, reference => match?.Groups[int.Parse(reference.Groups[1].Value)].Value ?? "");
+            return (rule, match);
         }
-        return rules.UnsortedProject;
+        return null;
     }
 
     private static string SenderOf(DeliveryRules rules, string address, string domain) =>

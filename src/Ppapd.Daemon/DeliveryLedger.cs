@@ -8,7 +8,8 @@ namespace Ppapd.Daemon;
 /// <param name="Sha256">The SHA-256 of the received file, in hexadecimal.</param>
 /// <param name="Folder">The delivery folder.</param>
 /// <param name="FileNames">The files written, relative to <paramref name="Folder"/>.</param>
-internal sealed record Delivery(string MessageId, string Sha256, string Folder, IReadOnlyList<string> FileNames);
+/// <param name="Blocked">Whether the file was a blocked ZIP (F-4.7), <paramref name="FileNames"/> then holding its notice.</param>
+internal sealed record Delivery(string MessageId, string Sha256, string Folder, IReadOnlyList<string> FileNames, bool Blocked = false);
 
 /// <summary>The delivery ledger in SQLite (docs/PRD.md, F-6.4 and F-6.5).</summary>
 internal sealed class DeliveryLedger : IDisposable
@@ -26,6 +27,7 @@ internal sealed class DeliveryLedger : IDisposable
                 sha256 TEXT NOT NULL,
                 folder TEXT NOT NULL,
                 file_names TEXT NOT NULL,
+                blocked INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (message_id, sha256))
             """);
     }
@@ -33,11 +35,12 @@ internal sealed class DeliveryLedger : IDisposable
     /// <summary>Records <paramref name="delivery"/>, its hash in lowercase.</summary>
     /// <exception cref="SqliteException">The same file from the same mail is already recorded; F-6.5 has the caller check <see cref="Has"/> first.</exception>
     public void Record(Delivery delivery) => Execute(
-        "INSERT INTO deliveries (message_id, sha256, folder, file_names) VALUES ($message, $sha, $folder, $names)",
+        "INSERT INTO deliveries (message_id, sha256, folder, file_names, blocked) VALUES ($message, $sha, $folder, $names, $blocked)",
         ("$message", delivery.MessageId),
         ("$sha", delivery.Sha256.ToLowerInvariant()),
         ("$folder", delivery.Folder),
-        ("$names", JsonSerializer.Serialize(delivery.FileNames)));
+        ("$names", JsonSerializer.Serialize(delivery.FileNames)),
+        ("$blocked", delivery.Blocked));
 
     /// <summary>Whether the file of hash <paramref name="sha256"/> from mail <paramref name="messageId"/> was delivered (F-6.5).</summary>
     public bool Has(string messageId, string sha256)
@@ -52,7 +55,7 @@ internal sealed class DeliveryLedger : IDisposable
     public IReadOnlyList<Delivery> DeliveriesOf(string messageId)
     {
         using var command = Command(
-            "SELECT sha256, folder, file_names FROM deliveries WHERE message_id = $message ORDER BY rowid",
+            "SELECT sha256, folder, file_names, blocked FROM deliveries WHERE message_id = $message ORDER BY rowid",
             ("$message", messageId));
         using var reader = command.ExecuteReader();
         var deliveries = new List<Delivery>();
@@ -60,9 +63,27 @@ internal sealed class DeliveryLedger : IDisposable
         {
             deliveries.Add(new Delivery(
                 messageId, reader.GetString(0), reader.GetString(1),
-                JsonSerializer.Deserialize<List<string>>(reader.GetString(2))!));
+                JsonSerializer.Deserialize<List<string>>(reader.GetString(2))!,
+                reader.GetBoolean(3)));
         }
         return deliveries;
+    }
+
+    /// <summary>
+    /// The state of mail <paramref name="messageId"/> as the ledger knows it: <see cref="DeliveryState.Blocked"/> when any of
+    /// its ZIPs was blocked, even with other files delivered (F-2.4); <see cref="DeliveryState.Delivered"/> when files were
+    /// delivered; otherwise <see cref="DeliveryState.None"/>.
+    /// </summary>
+    public DeliveryState StateOf(string messageId)
+    {
+        using var command = Command(
+            "SELECT COUNT(*), COALESCE(MAX(blocked), 0) FROM deliveries WHERE message_id = $message",
+            ("$message", messageId));
+        using var reader = command.ExecuteReader();
+        reader.Read();
+        return reader.GetInt64(0) == 0 ? DeliveryState.None
+            : reader.GetBoolean(1) ? DeliveryState.Blocked
+            : DeliveryState.Delivered;
     }
 
     public void Dispose() => connection.Dispose();
