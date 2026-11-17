@@ -129,6 +129,24 @@ public sealed class ZipDeliveryTests : IDisposable
     }
 
     [Fact]
+    public void A_look_alike_zip_with_the_right_comment_but_other_contents_does_not_stand_in_for_the_repacked_one()
+    {
+        var zip = new FileInfo(SampleFixtures.Path("ppap-zipcrypto-utf8.zip"));
+        var lookAlike = Path.Combine(destination.FullName, zip.Name);
+        using (var archive = ZipFile.Open(lookAlike, ZipArchiveMode.Create))
+        {
+            archive.Comment = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(zip.FullName)));
+            using var stream = archive.CreateEntry("readme.txt").Open();
+            stream.Write("not what was sent\n"u8);
+        }
+
+        ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work);
+
+        var repacked = Path.Combine(destination.FullName, Path.GetFileNameWithoutExtension(zip.Name) + "_1.zip");
+        using var real = ZipFile.OpenRead(repacked);
+        Assert.Equal(SampleFixtures.ExpectedFiles().Keys, real.Entries.Where(entry => !entry.FullName.EndsWith('/')).Select(entry => entry.FullName).Order(StringComparer.Ordinal));
+    }
+    [Fact]
     public void A_file_whose_content_matches_a_numbered_one_already_there_is_not_delivered_again()
     {
         File.WriteAllText(Path.Combine(destination.FullName, "仕様書.txt"), "different\n");
