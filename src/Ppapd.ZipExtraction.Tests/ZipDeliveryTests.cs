@@ -177,7 +177,7 @@ public sealed class ZipDeliveryTests : IDisposable
         var result = ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work);
 
         Assert.Equal(
-            ["readme_1.txt", "仕様書.txt", "図面/A-001_平面図.txt", "図面/A-002_立面図.txt", zip.Name],
+            new[] { "readme_1.txt", "仕様書.txt", "図面/A-001_平面図.txt", "図面/A-002_立面図.txt", zip.Name }.Order(StringComparer.Ordinal),
             result.Written.Order(StringComparer.Ordinal));
     }
 

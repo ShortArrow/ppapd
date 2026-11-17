@@ -9,8 +9,8 @@ public static class NumberedCopy
     /// as <paramref name="source"/> by <paramref name="isSame"/>, copies nothing.
     /// </summary>
     /// <param name="isSame">Whether a file already in the folder holds what <paramref name="source"/> holds.</param>
-    /// <returns>The file written, or <c>null</c> when the same file was already there.</returns>
-    public static FileInfo? To(FileInfo source, FileInfo target, Func<FileInfo, bool> isSame)
+    /// <returns>The file written, or the one found the same, told apart by <see cref="CopyOutcome.Copied"/>.</returns>
+    public static CopyOutcome To(FileInfo source, FileInfo target, Func<FileInfo, bool> isSame)
     {
         for (var number = 0; ; number++)
         {
@@ -21,13 +21,13 @@ public static class NumberedCopy
             {
                 if (candidate.Exists && isSame(candidate))
                 {
-                    return null;
+                    return new CopyOutcome(candidate, Copied: false);
                 }
                 continue;
             }
             try
             {
-                return source.CopyTo(candidate.FullName, overwrite: false);
+                return new CopyOutcome(source.CopyTo(candidate.FullName, overwrite: false), Copied: true);
             }
             catch (IOException) when (Path.Exists(candidate.FullName))
             {
@@ -37,3 +37,6 @@ public static class NumberedCopy
         }
     }
 }
+
+/// <summary>Where <see cref="NumberedCopy.To"/> left the file: copied there, or found already there with the same content.</summary>
+public sealed record CopyOutcome(FileInfo File, bool Copied);

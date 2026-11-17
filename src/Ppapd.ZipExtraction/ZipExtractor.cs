@@ -121,6 +121,13 @@ public static class ZipExtractor
     }
 
 
+    /// <summary>Whether any entry of <paramref name="zip"/> is encrypted, read without a password.</summary>
+    public static bool IsEncrypted(Stream zip)
+    {
+        using var archive = Open(zip, password: null);
+        return archive.Entries.Any(entry => entry.IsEncrypted);
+    }
+
     /// <summary>
     /// Yields the name, as read under F-4.2, and a content opener of every file entry of <paramref name="zip"/>.
     /// Each opener is valid only until the enumeration moves on.

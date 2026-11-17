@@ -13,22 +13,28 @@ public static class ZipDelivery
     /// <param name="destination">An existing folder to deliver into.</param>
     /// <param name="password">The password of an encrypted ZIP; <c>null</c> for an unencrypted one.</param>
     /// <param name="work">Where the ZIP is extracted and repacked before delivery.</param>
-    /// <returns>Why the ZIP was blocked, or <c>null</c> when it was delivered.</returns>
+    /// <returns>Why the ZIP was blocked, if it was, and the files written and found already there.</returns>
     /// <exception cref="Exception">
-    /// Extraction, repacking or copying failed, for instance on a wrong password, corrupt data, or a file of the same
-    /// name already in <paramref name="destination"/>. Nothing of the ZIP is left there, and what was there before is kept (F-4.8).
+    /// Extraction, repacking or copying failed, for instance on a wrong password or corrupt data. Nothing of the ZIP is
+    /// left in <paramref name="destination"/>, and what was there before is kept (F-4.8).
     /// </exception>
-    public static BlockReason? Deliver(FileInfo zip, DirectoryInfo destination, string? password, WorkFolders work)
+    public static ZipDeliveryResult Deliver(FileInfo zip, DirectoryInfo destination, string? password, WorkFolders work)
     {
         using var folder = work.Create();
         if (Prepare(zip, folder, password) is { } reason)
         {
             BlockedNotice.Write(destination, zip.Name, reason);
-            return reason;
+            return new ZipDeliveryResult(reason, [zip.Name + ".blocked.txt"], []);
         }
-        CopyInto([(folder.Directory, SameContent), (folder.Repacked, SameRepack)], destination);
-        return null;
+        var outcomes = CopyInto([(folder.Directory, SameContent), (folder.Repacked, SameRepack)], destination);
+        return new ZipDeliveryResult(
+            null,
+            outcomes.Where(outcome => outcome.Copied).Select(outcome => RelativeName(outcome.File, destination)).ToList(),
+            outcomes.Where(outcome => !outcome.Copied).Select(outcome => RelativeName(outcome.File, destination)).ToList());
     }
+
+    private static string RelativeName(FileInfo file, DirectoryInfo destination) =>
+        Path.GetRelativePath(destination.FullName, file.FullName).Replace(Path.DirectorySeparatorChar, '/');
 
     /// <summary>Extracts and, given a password, repacks <paramref name="zip"/> into <paramref name="folder"/>.</summary>
     /// <returns>Why the ZIP was blocked, or <c>null</c> when <paramref name="folder"/> holds what to deliver.</returns>
@@ -63,10 +69,12 @@ public static class ZipDelivery
     /// numbering a name already taken there and skipping a file found there already by its folder's sameness test (F-6.3).
     /// Copying, unlike moving, lets each file take the permissions of <paramref name="destination"/> in place of the work folder's.
     /// </summary>
+    /// <returns>Where each file was copied, or the same file found in its place.</returns>
     /// <exception cref="Exception">A copy failed; what this call made under <paramref name="destination"/> has been removed.</exception>
-    private static void CopyInto(IEnumerable<(DirectoryInfo Folder, Func<FileInfo, FileInfo, bool> Same)> folders, DirectoryInfo destination)
+    private static List<CopyOutcome> CopyInto(IEnumerable<(DirectoryInfo Folder, Func<FileInfo, FileInfo, bool> Same)> folders, DirectoryInfo destination)
     {
         var copied = new List<FileSystemInfo>();
+        var outcomes = new List<CopyOutcome>();
         try
         {
             foreach (var (folder, same) in folders)
@@ -75,12 +83,15 @@ public static class ZipDelivery
                 {
                     var target = new FileInfo(Path.Combine(destination.FullName, Path.GetRelativePath(folder.FullName, file.FullName)));
                     ZipExtractor.CreateMissingFolders(target.Directory!, copied);
-                    if (NumberedCopy.To(file, target, existing => same(file, existing)) is { } written)
+                    var outcome = NumberedCopy.To(file, target, existing => same(file, existing));
+                    if (outcome.Copied)
                     {
-                        copied.Add(written);
+                        copied.Add(outcome.File);
                     }
+                    outcomes.Add(outcome);
                 }
             }
+            return outcomes;
         }
         catch
         {
@@ -118,3 +129,9 @@ public static class ZipDelivery
         }
     }
 }
+
+/// <summary>What <see cref="ZipDelivery.Deliver"/> did, names relative to the delivery folder with <c>/</c> between folders.</summary>
+/// <param name="Blocked">Why the ZIP was blocked, or <c>null</c> when it was delivered.</param>
+/// <param name="Written">The files written, the notice alone when blocked.</param>
+/// <param name="Found">The files not written because the same content was already there under these names (F-6.3).</param>
+public sealed record ZipDeliveryResult(BlockReason? Blocked, IReadOnlyList<string> Written, IReadOnlyList<string> Found);
