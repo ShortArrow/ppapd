@@ -79,8 +79,29 @@ internal sealed class PairingStore : IDisposable
     public IReadOnlyList<WaitingZip> ZipsFor(MailKey mail) =>
         NearestTier(mail, ReadZips().Where(zip => zip.State != PairingState.Mismatch).ToList(), zip => zip.Mail);
 
-    /// <summary>The password candidates a ZIP mail <paramref name="mail"/> pairs with (F-3.1), decrypted.</summary>
-    public IReadOnlyList<WaitingPasswords> PasswordsFor(MailKey mail) => NearestTier(mail, ReadPasswords(), passwords => passwords.Mail);
+    /// <summary>
+    /// The password candidates a ZIP mail <paramref name="mail"/> pairs with (F-3.1). Only the records the tier selects are
+    /// decrypted, and one DPAPI cannot open is skipped.
+    /// </summary>
+    public IReadOnlyList<WaitingPasswords> PasswordsFor(MailKey mail)
+    {
+        var found = new List<WaitingPasswords>();
+        foreach (var (key, encrypted) in NearestTier(mail, ReadPasswordRows(), row => row.Key))
+        {
+            byte[] plain;
+            try
+            {
+                plain = ProtectedData.Unprotect(encrypted, null, DataProtectionScope.CurrentUser);
+            }
+            catch (CryptographicException)
+            {
+                continue;
+            }
+            found.Add(new WaitingPasswords(key, JsonSerializer.Deserialize<List<string>>(plain)!));
+            CryptographicOperations.ZeroMemory(plain);
+        }
+        return found;
+    }
 
     public void SetState(string messageId, string sha256, PairingState state) => Execute(
         "UPDATE waiting_zips SET state = $state WHERE message_id = $message AND sha256 = $sha",
@@ -100,7 +121,10 @@ internal sealed class PairingStore : IDisposable
         Execute("DELETE FROM waiting_passwords WHERE received < $cutoff", [("$cutoff", cutoff)]);
     }
 
-    /// <summary>The pairing state of mail <paramref name="messageId"/>, the most pressing of its records; <see cref="DeliveryState.None"/> without any.</summary>
+    /// <summary>
+    /// The pairing state of mail <paramref name="messageId"/>, the most pressing of its records; <see cref="DeliveryState.None"/>
+    /// without any. No password candidate is decrypted for this (S-4).
+    /// </summary>
     public DeliveryState StateOf(string messageId)
     {
         var states = ReadZips().Where(zip => zip.Mail.MessageId == messageId).Select(zip => zip.State switch
@@ -109,9 +133,12 @@ internal sealed class PairingStore : IDisposable
             PairingState.ExtractFailed => DeliveryState.ExtractFailed,
             _ => DeliveryState.Waiting,
         }).ToList();
-        if (ReadPasswords().Any(passwords => passwords.Mail.MessageId == messageId))
+        using (var command = Command("SELECT 1 FROM waiting_passwords WHERE message_id = $message", [("$message", messageId)]))
         {
-            states.Add(DeliveryState.Waiting);
+            if (command.ExecuteScalar() is not null)
+            {
+                states.Add(DeliveryState.Waiting);
+            }
         }
         return states.Count == 0 ? DeliveryState.None : states.MinBy(Urgency);
     }
@@ -164,18 +191,17 @@ internal sealed class PairingStore : IDisposable
         return zips;
     }
 
-    private List<WaitingPasswords> ReadPasswords()
+    /// <summary>Every waiting password record, its candidates still encrypted.</summary>
+    private List<(MailKey Key, byte[] Encrypted)> ReadPasswordRows()
     {
         using var command = Command("SELECT message_id, conversation_id, sender, domain, received, candidates FROM waiting_passwords", []);
         using var reader = command.ExecuteReader();
-        var passwords = new List<WaitingPasswords>();
+        var rows = new List<(MailKey, byte[])>();
         while (reader.Read())
         {
-            var plain = ProtectedData.Unprotect((byte[])reader.GetValue(5), null, DataProtectionScope.CurrentUser);
-            passwords.Add(new WaitingPasswords(KeyOf(reader), JsonSerializer.Deserialize<List<string>>(plain)!));
-            CryptographicOperations.ZeroMemory(plain);
+            rows.Add((KeyOf(reader), (byte[])reader.GetValue(5)));
         }
-        return passwords;
+        return rows;
     }
 
     private static MailKey KeyOf(SqliteDataReader reader) => new(

@@ -125,11 +125,12 @@ internal sealed class MessageHandler(
         {
             return DeliveryState.Waiting;
         }
+        var state = TryOpen(zip, waiting.SelectMany(passwords => passwords.Candidates).Distinct().ToList());
         foreach (var passwords in waiting)
         {
             store.RemovePasswords(passwords.Mail.MessageId);
         }
-        return TryOpen(zip, waiting.SelectMany(passwords => passwords.Candidates).Distinct().ToList());
+        return state;
     }
 
     /// <summary>
@@ -155,7 +156,8 @@ internal sealed class MessageHandler(
 
     /// <summary>
     /// Checks that the waiting ZIP is still the one recorded (F-3.3, F-3.4), then tries <paramref name="candidates"/> in turn
-    /// until one delivers it (F-3.5). Each failed try leaves nothing behind (F-4.8).
+    /// until one delivers it (F-3.5). Each failed try leaves nothing behind (F-4.8). A failure after the ZIP opened is not
+    /// a wrong password: it is thrown, and the ZIP keeps waiting.
     /// </summary>
     private DeliveryState TryOpen(WaitingZip zip, IReadOnlyList<string> candidates)
     {
@@ -180,6 +182,11 @@ internal sealed class MessageHandler(
             try
             {
                 result = ZipDelivery.Deliver(file, folder, candidate, work);
+            }
+            catch (DeliveryCopyException)
+            {
+                RemoveIfEmpty(created);
+                throw;
             }
             catch (Exception)
             {

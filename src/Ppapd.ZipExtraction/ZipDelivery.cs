@@ -15,8 +15,11 @@ public static class ZipDelivery
     /// <param name="work">Where the ZIP is extracted and repacked before delivery.</param>
     /// <returns>Why the ZIP was blocked, if it was, and the files written and found already there.</returns>
     /// <exception cref="Exception">
-    /// Extraction, repacking or copying failed, for instance on a wrong password or corrupt data. Nothing of the ZIP is
+    /// Extraction or repacking failed, for instance on a wrong password or corrupt data. Nothing of the ZIP is
     /// left in <paramref name="destination"/>, and what was there before is kept (F-4.8).
+    /// </exception>
+    /// <exception cref="DeliveryCopyException">
+    /// The ZIP opened but copying into <paramref name="destination"/> failed; what was copied has been removed (F-4.8).
     /// </exception>
     public static ZipDeliveryResult Deliver(FileInfo zip, DirectoryInfo destination, string? password, WorkFolders work)
     {
@@ -26,7 +29,15 @@ public static class ZipDelivery
             BlockedNotice.Write(destination, zip.Name, reason);
             return new ZipDeliveryResult(reason, [zip.Name + ".blocked.txt"], []);
         }
-        var outcomes = CopyInto([(folder.Directory, NumberedCopy.SameContent), (folder.Repacked, SameRepack)], destination);
+        List<CopyOutcome> outcomes;
+        try
+        {
+            outcomes = CopyInto([(folder.Directory, NumberedCopy.SameContent), (folder.Repacked, SameRepack)], destination);
+        }
+        catch (Exception e)
+        {
+            throw new DeliveryCopyException(e);
+        }
         return new ZipDeliveryResult(
             null,
             outcomes.Where(outcome => outcome.Copied).Select(outcome => RelativeName(outcome.File, destination)).ToList(),
@@ -173,3 +184,6 @@ public static class ZipDelivery
 /// <param name="Written">The files written, the notice alone when blocked.</param>
 /// <param name="Found">The files not written because the same content was already there under these names (F-6.3).</param>
 public sealed record ZipDeliveryResult(BlockReason? Blocked, IReadOnlyList<string> Written, IReadOnlyList<string> Found);
+
+/// <summary>A ZIP that opened could not be copied into its delivery folder; told apart from a wrong password (docs/PRD.md, F-3.5).</summary>
+public sealed class DeliveryCopyException(Exception inner) : IOException("Copying into the delivery folder failed.", inner);
