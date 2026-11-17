@@ -117,19 +117,42 @@ public sealed class ZipDeliveryTests : IDisposable
     }
 
     [Fact]
-    public void Delivering_the_same_zip_twice_numbers_every_file_of_the_second_delivery_inside_the_same_folders()
+    public void Delivering_the_same_encrypted_zip_twice_adds_nothing_the_second_time()
     {
         var zip = new FileInfo(SampleFixtures.Path("ppap-zipcrypto-utf8.zip"));
         ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work);
+        var first = WrittenFiles();
 
         ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work);
 
-        var expected = SampleFixtures.ExpectedFiles().Keys
-            .SelectMany(name => new[] { name, Numbered(name) })
-            .Append(zip.Name).Append(Numbered(zip.Name))
-            .Order(StringComparer.Ordinal);
-        Assert.Equal(expected, WrittenFiles().Keys);
-        Assert.Equal(["図面"], destination.EnumerateDirectories().Select(folder => folder.Name));
+        Assert.Equal(first, WrittenFiles());
+    }
+
+    [Fact]
+    public void A_file_whose_content_matches_a_numbered_one_already_there_is_not_delivered_again()
+    {
+        File.WriteAllText(Path.Combine(destination.FullName, "仕様書.txt"), "different\n");
+        File.WriteAllText(Path.Combine(destination.FullName, "仕様書_1.txt"), "サンプルの仕様書です。\n");
+        var zip = new FileInfo(SampleFixtures.Path("plain-utf8.zip"));
+
+        ZipDelivery.Deliver(zip, destination, password: null, Work);
+
+        Assert.DoesNotContain("仕様書_2.txt", WrittenFiles().Keys);
+        Assert.Equal("different\n", File.ReadAllText(Path.Combine(destination.FullName, "仕様書.txt")));
+    }
+
+    [Fact]
+    public void Only_the_files_whose_content_differs_from_those_already_there_are_delivered_with_a_number()
+    {
+        File.WriteAllText(Path.Combine(destination.FullName, "仕様書.txt"), "サンプルの仕様書です。\n");
+        File.WriteAllText(Path.Combine(destination.FullName, "readme.txt"), "different\n");
+        var zip = new FileInfo(SampleFixtures.Path("plain-utf8.zip"));
+
+        ZipDelivery.Deliver(zip, destination, password: null, Work);
+
+        Assert.Equal(
+            ["readme.txt", "readme_1.txt", "仕様書.txt", "図面/A-001_平面図.txt", "図面/A-002_立面図.txt"],
+            WrittenFiles().Keys);
     }
 
     [Fact]
@@ -145,9 +168,6 @@ public sealed class ZipDeliveryTests : IDisposable
         Assert.Empty(workRoot.EnumerateFileSystemInfos());
     }
 
-    /// <summary><paramref name="name"/> with <c>_1</c> before its extension, as F-6.3 numbers it.</summary>
-    private static string Numbered(string name) =>
-        Path.ChangeExtension(name, null) + "_1" + Path.GetExtension(name);
     /// <summary>Saves into the download folder an unencrypted ZIP holding each of <paramref name="entryNames"/>.</summary>
     private FileInfo SaveZipWith(string zipName, params string[] entryNames)
     {
