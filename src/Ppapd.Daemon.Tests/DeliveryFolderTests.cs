@@ -107,6 +107,24 @@ public sealed class DeliveryFolderTests
         Assert.Equal([runaway], decision.TimedOut);
     }
 
+    [Theory]
+    [InlineData("taro@example.co.jp", "【P-12345】図面送付", true)]
+    [InlineData("hanako@other.example", "見積書の送付", true)]
+    [InlineData("hanako@other.example", "ご挨拶", false)]
+    [InlineData("taro@example.co.jp", "ご挨拶", false)]
+    public void A_mail_matches_when_one_of_the_project_rules_does(string from, string subject, bool matches)
+    {
+        Assert.Equal(matches, DeliveryFolder.Matches(Rules, new MailMetadata(from, subject, November12)));
+    }
+
+    [Fact]
+    public void A_mail_matching_only_a_rule_that_ran_out_of_time_does_not_match()
+    {
+        var rules = Rules with { Projects = [new ProjectRule(Project: "Runaway", FromDomain: null, SubjectRegex: "^(a+)+$")] };
+
+        Assert.False(DeliveryFolder.Matches(rules, new MailMetadata("x@example.co.jp", new string('a', 40) + "!", November12)));
+    }
+
     [Fact]
     public void A_folder_that_resolves_outside_the_projects_root_is_refused()
     {

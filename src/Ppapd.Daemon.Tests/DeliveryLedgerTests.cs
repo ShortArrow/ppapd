@@ -82,6 +82,34 @@ public sealed class DeliveryLedgerTests : IDisposable
         Assert.Empty(ledger.DeliveriesOf("<none@example.co.jp>"));
     }
 
+    [Fact]
+    public void A_message_with_no_record_is_in_no_state()
+    {
+        using var ledger = new DeliveryLedger(DatabasePath);
+
+        Assert.Equal(DeliveryState.None, ledger.StateOf("<none@example.co.jp>"));
+    }
+
+    [Fact]
+    public void A_message_whose_files_were_delivered_is_delivered()
+    {
+        using var ledger = new DeliveryLedger(DatabasePath);
+        ledger.Record(Example);
+
+        Assert.Equal(DeliveryState.Delivered, ledger.StateOf(Example.MessageId));
+    }
+
+    [Fact]
+    public void A_message_with_a_blocked_zip_is_blocked_even_when_its_other_files_were_delivered()
+    {
+        using var ledger = new DeliveryLedger(DatabasePath);
+        ledger.Record(Example);
+        ledger.Record(Example with { Sha256 = new string('2', 64), FileNames = ["見積書.zip.blocked.txt"], Blocked = true });
+
+        Assert.Equal(DeliveryState.Blocked, ledger.StateOf(Example.MessageId));
+        Assert.True(ledger.DeliveriesOf(Example.MessageId)[1].Blocked);
+    }
+
     /// <summary>Compares deliveries by value, file names included, since a record compares lists by reference.</summary>
     private sealed class DeliveryComparer : IEqualityComparer<Delivery>
     {
@@ -89,7 +117,7 @@ public sealed class DeliveryLedgerTests : IDisposable
 
         public bool Equals(Delivery? x, Delivery? y) =>
             x is not null && y is not null
-            && x.MessageId == y.MessageId && x.Sha256 == y.Sha256 && x.Folder == y.Folder
+            && x.MessageId == y.MessageId && x.Sha256 == y.Sha256 && x.Folder == y.Folder && x.Blocked == y.Blocked
             && x.FileNames.SequenceEqual(y.FileNames);
 
         public int GetHashCode(Delivery delivery) => HashCode.Combine(delivery.MessageId, delivery.Sha256);
