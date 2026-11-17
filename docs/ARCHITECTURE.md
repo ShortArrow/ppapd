@@ -159,7 +159,7 @@ sequenceDiagram
 | 待機中の暗号化された ZIP | ダウンロードフォルダ | ペアが揃うまで |
 | 待機中のパスワード候補（DPAPI で暗号化） | SQLite（`%LOCALAPPDATA%\ppapd\ppapd.db`） | 解凍を試すか、破棄の期限まで |
 | 配送台帳（MessageId、ファイルの SHA-256、配送先パス、ファイル名一覧、ブロックした ZIP か） | SQLite（`%LOCALAPPDATA%\ppapd\ppapd.db`） | 無期限 |
-| HMAC の鍵 | 鍵ファイル（DPAPI で保護） | 無期限 |
+| HMAC の鍵 | 鍵ファイル `%LOCALAPPDATA%\ppapd\hmac.key`（DPAPI で利用者本人だけが戻せる形で保護） | 無期限 |
 | 振り分けの規則、送信者の別名 | `%LOCALAPPDATA%\ppapd\rules.yaml` | 利用者が編集する |
 | エラーの記録（規則、パス、例外の型。本文、パスワード、件名、平文のアドレスは書かない） | `%LOCALAPPDATA%\ppapd\ppapd.log` | 利用者が消すまで |
 | ダウンロードした添付とリンク先のファイル | ダウンロードフォルダ | 配送まで |
