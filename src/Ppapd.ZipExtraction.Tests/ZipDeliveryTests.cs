@@ -24,7 +24,7 @@ public sealed class ZipDeliveryTests : IDisposable
     {
         var zip = new FileInfo(SampleFixtures.Path("ppap-zipcrypto-utf8.zip"));
 
-        var blocked = ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work);
+        var blocked = ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work).Blocked;
 
         Assert.Null(blocked);
         var written = WrittenFiles();
@@ -55,7 +55,7 @@ public sealed class ZipDeliveryTests : IDisposable
     {
         var zip = new FileInfo(SampleFixtures.Path("plain-utf8.zip"));
 
-        var blocked = ZipDelivery.Deliver(zip, destination, password: null, Work);
+        var blocked = ZipDelivery.Deliver(zip, destination, password: null, Work).Blocked;
 
         Assert.Null(blocked);
         Assert.Equal(SampleFixtures.ExpectedFiles(), WrittenFiles());
@@ -67,7 +67,7 @@ public sealed class ZipDeliveryTests : IDisposable
     {
         var zip = SaveZipWith("見積書.zip", "readme.txt", "../outside.txt");
 
-        var blocked = ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work);
+        var blocked = ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work).Blocked;
 
         Assert.Equal(BlockReason.ZipSlip, blocked);
         Assert.Equal(["見積書.zip.blocked.txt"], WrittenFiles().Keys);
@@ -80,7 +80,7 @@ public sealed class ZipDeliveryTests : IDisposable
     {
         var zip = SaveZipWith("図面一式.zip", Enumerable.Range(0, 10_001).Select(index => $"{index}.txt").ToArray());
 
-        var blocked = ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work);
+        var blocked = ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work).Blocked;
 
         Assert.Equal(BlockReason.TooLarge, blocked);
         Assert.Equal(["図面一式.zip.blocked.txt"], WrittenFiles().Keys);
@@ -166,6 +166,41 @@ public sealed class ZipDeliveryTests : IDisposable
         Assert.Equal(["図面"], WrittenFiles().Keys);
         Assert.Empty(destination.EnumerateDirectories());
         Assert.Empty(workRoot.EnumerateFileSystemInfos());
+    }
+
+    [Fact]
+    public void Delivering_lists_the_files_it_wrote_relative_to_the_destination_numbered_as_written()
+    {
+        File.WriteAllText(Path.Combine(destination.FullName, "readme.txt"), "different\n");
+        var zip = new FileInfo(SampleFixtures.Path("ppap-zipcrypto-utf8.zip"));
+
+        var result = ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work);
+
+        Assert.Equal(
+            ["readme_1.txt", "仕様書.txt", "図面/A-001_平面図.txt", "図面/A-002_立面図.txt", zip.Name],
+            result.Written.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void Files_already_there_with_the_same_content_are_listed_as_found_not_as_written()
+    {
+        var zip = new FileInfo(SampleFixtures.Path("plain-utf8.zip"));
+        ZipDelivery.Deliver(zip, destination, password: null, Work);
+
+        var result = ZipDelivery.Deliver(zip, destination, password: null, Work);
+
+        Assert.Empty(result.Written);
+        Assert.Equal(SampleFixtures.ExpectedFiles().Keys, result.Found.Order(StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void A_blocked_zip_lists_only_its_notice_as_written()
+    {
+        var zip = SaveZipWith("見積書.zip", "readme.txt", "../outside.txt");
+
+        var result = ZipDelivery.Deliver(zip, destination, password: null, Work);
+
+        Assert.Equal(["見積書.zip.blocked.txt"], result.Written);
     }
 
     /// <summary>Saves into the download folder an unencrypted ZIP holding each of <paramref name="entryNames"/>.</summary>

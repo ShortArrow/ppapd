@@ -205,6 +205,17 @@ public sealed class ZipExtractorTests : IDisposable
     /// Flips one byte of <paramref name="entryName"/>'s AES-encrypted data, just after its 16-byte salt and
     /// 2-byte password verifier, so the password still passes but the content no longer matches its authentication code.
     /// </summary>
+    [Theory]
+    [InlineData("ppap-zipcrypto-utf8.zip", true)]
+    [InlineData("ppap-aes256-cp932.zip", true)]
+    [InlineData("plain-utf8.zip", false)]
+    public void Whether_a_zip_is_encrypted_is_told_without_its_password(string sample, bool encrypted)
+    {
+        using var zip = File.OpenRead(SampleFixtures.Path(sample));
+
+        Assert.Equal(encrypted, ZipExtractor.IsEncrypted(zip));
+    }
+
     private static void AlterFirstEncryptedByte(MemoryStream zip, string entryName)
     {
         var bytes = zip.GetBuffer().AsSpan(0, (int)zip.Length);
