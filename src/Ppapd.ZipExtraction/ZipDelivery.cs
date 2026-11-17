@@ -21,24 +21,24 @@ public static class ZipDelivery
     public static BlockReason? Deliver(FileInfo zip, DirectoryInfo destination, string? password, WorkFolders work)
     {
         using var folder = work.Create();
-        if (Prepare(zip, folder.Directory, password) is { } reason)
+        if (Prepare(zip, folder, password) is { } reason)
         {
             BlockedNotice.Write(destination, zip.Name, reason);
             return reason;
         }
-        CopyInto(folder.Directory, destination);
+        CopyInto([folder.Directory, folder.Repacked], destination);
         return null;
     }
 
     /// <summary>Extracts and, given a password, repacks <paramref name="zip"/> into <paramref name="folder"/>.</summary>
     /// <returns>Why the ZIP was blocked, or <c>null</c> when <paramref name="folder"/> holds what to deliver.</returns>
-    private static BlockReason? Prepare(FileInfo zip, DirectoryInfo folder, string? password)
+    private static BlockReason? Prepare(FileInfo zip, WorkFolder folder, string? password)
     {
         using (var source = zip.OpenRead())
         {
             try
             {
-                ZipExtractor.Extract(source, folder, password);
+                ZipExtractor.Extract(source, folder.Directory, password);
             }
             catch (ZipSlipException)
             {
@@ -51,7 +51,7 @@ public static class ZipDelivery
         }
         if (password is not null)
         {
-            using var output = new FileStream(Path.Combine(folder.FullName, zip.Name), FileMode.CreateNew);
+            using var output = new FileStream(Path.Combine(folder.Repacked.FullName, zip.Name), FileMode.CreateNew);
             using var source = zip.OpenRead();
             ZipRepacker.Repack(source, password, output);
         }
@@ -59,21 +59,24 @@ public static class ZipDelivery
     }
 
     /// <summary>
-    /// Copies every file of <paramref name="folder"/> to the same place under <paramref name="destination"/>. Copying,
-    /// unlike moving, lets each file take the permissions of <paramref name="destination"/> in place of the work folder's.
+    /// Copies every file of each of <paramref name="folders"/>, in order, to the same place under <paramref name="destination"/>,
+    /// numbering a name already taken there (F-6.3). Copying, unlike moving, lets each file take the permissions of
+    /// <paramref name="destination"/> in place of the work folder's.
     /// </summary>
     /// <exception cref="Exception">A copy failed; what this call made under <paramref name="destination"/> has been removed.</exception>
-    private static void CopyInto(DirectoryInfo folder, DirectoryInfo destination)
+    private static void CopyInto(IEnumerable<DirectoryInfo> folders, DirectoryInfo destination)
     {
         var copied = new List<FileSystemInfo>();
         try
         {
-            foreach (var file in folder.EnumerateFiles("*", SearchOption.AllDirectories))
+            foreach (var folder in folders)
             {
-                var target = new FileInfo(Path.Combine(destination.FullName, Path.GetRelativePath(folder.FullName, file.FullName)));
-                ZipExtractor.CreateMissingFolders(target.Directory!, copied);
-                file.CopyTo(target.FullName, overwrite: false);
-                copied.Add(target);
+                foreach (var file in folder.EnumerateFiles("*", SearchOption.AllDirectories))
+                {
+                    var target = new FileInfo(Path.Combine(destination.FullName, Path.GetRelativePath(folder.FullName, file.FullName)));
+                    ZipExtractor.CreateMissingFolders(target.Directory!, copied);
+                    copied.Add(NumberedCopy.To(file, target));
+                }
             }
         }
         catch

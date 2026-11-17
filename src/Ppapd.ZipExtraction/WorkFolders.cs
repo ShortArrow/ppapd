@@ -31,9 +31,10 @@ public sealed class WorkFolders(DirectoryInfo root)
         var folder = new DirectoryInfo(Path.Combine(root.FullName, Guid.NewGuid().ToString("N")));
         folder.Create(CurrentUserOnly());
         var held = Lock(folder, FileMode.CreateNew);
-        var files = new DirectoryInfo(Path.Combine(folder.FullName, "files"));
-        files.Create(CurrentUserOnly());
-        return new WorkFolder(folder, files, held);
+        var work = new WorkFolder(folder, held);
+        work.Directory.Create(CurrentUserOnly());
+        work.Repacked.Create(CurrentUserOnly());
+        return work;
     }
 
     /// <summary>
@@ -57,7 +58,7 @@ public sealed class WorkFolders(DirectoryInfo root)
             {
                 continue;
             }
-            new WorkFolder(folder, new DirectoryInfo(Path.Combine(folder.FullName, "files")), held).Dispose();
+            new WorkFolder(folder, held).Dispose();
         }
     }
 
@@ -81,23 +82,30 @@ public sealed class WorkFolders(DirectoryInfo root)
 
 /// <summary>One work folder of <see cref="WorkFolders"/>, locked while this object lives.</summary>
 /// <remarks>
-/// The lock file sits beside <see cref="Directory"/>, not in it, so that nothing extracted can collide with it
-/// and nothing copied out of <see cref="Directory"/> includes it.
+/// The lock file sits beside <see cref="Directory"/> and <see cref="Repacked"/>, not in them, so that nothing extracted can collide with it
+/// and nothing copied out of them includes it.
 /// </remarks>
 public sealed class WorkFolder : IDisposable
 {
     private readonly DirectoryInfo folder;
     private readonly FileStream held;
 
-    internal WorkFolder(DirectoryInfo folder, DirectoryInfo files, FileStream held)
+    internal WorkFolder(DirectoryInfo folder, FileStream held)
     {
         this.folder = folder;
         this.held = held;
-        Directory = files;
+        Directory = new DirectoryInfo(Path.Combine(folder.FullName, "files"));
+        Repacked = new DirectoryInfo(Path.Combine(folder.FullName, "repacked"));
     }
 
-    /// <summary>The empty folder to extract and repack into.</summary>
+    /// <summary>The empty folder to extract into.</summary>
     public DirectoryInfo Directory { get; }
+
+    /// <summary>
+    /// The empty folder to write the repacked ZIP into, apart from <see cref="Directory"/> so that an extracted file
+    /// named like the ZIP does not collide with it.
+    /// </summary>
+    public DirectoryInfo Repacked { get; }
 
     /// <summary>Deletes everything in the work folder while still holding its lock, then releases the lock and removes the folder.</summary>
     public void Dispose()
