@@ -26,7 +26,7 @@ public static class ZipDelivery
             BlockedNotice.Write(destination, zip.Name, reason);
             return new ZipDeliveryResult(reason, [zip.Name + ".blocked.txt"], []);
         }
-        var outcomes = CopyInto([(folder.Directory, SameContent), (folder.Repacked, SameRepack)], destination);
+        var outcomes = CopyInto([(folder.Directory, NumberedCopy.SameContent), (folder.Repacked, SameRepack)], destination);
         return new ZipDeliveryResult(
             null,
             outcomes.Where(outcome => outcome.Copied).Select(outcome => RelativeName(outcome.File, destination)).ToList(),
@@ -100,21 +100,12 @@ public static class ZipDelivery
         }
     }
 
-    private static bool SameContent(FileInfo file, FileInfo existing) =>
-        file.Length == existing.Length && Sha256Of(file).SequenceEqual(Sha256Of(existing));
-
     /// <summary>
     /// Whether <paramref name="existing"/> is a ZIP repacked from the same encrypted ZIP as <paramref name="repacked"/>, told
     /// by the comment F-4.4 sets; a repacked ZIP differs byte for byte each time it is made.
     /// </summary>
     private static bool SameRepack(FileInfo repacked, FileInfo existing) =>
         CommentOf(existing) is { Length: > 0 } comment && comment == CommentOf(repacked);
-
-    private static byte[] Sha256Of(FileInfo file)
-    {
-        using var stream = file.OpenRead();
-        return System.Security.Cryptography.SHA256.HashData(stream);
-    }
 
     private static string? CommentOf(FileInfo zip)
     {

@@ -36,7 +36,17 @@ public static class NumberedCopy
             }
         }
     }
-}
 
+    /// <summary>Whether <paramref name="file"/> and <paramref name="other"/> hold the same bytes, by their SHA-256 (F-6.3).</summary>
+    public static bool SameContent(FileInfo file, FileInfo other) =>
+        file.Length == other.Length && Sha256Of(file).SequenceEqual(Sha256Of(other));
+
+    /// <summary>The SHA-256 of what <paramref name="file"/> holds.</summary>
+    public static byte[] Sha256Of(FileInfo file)
+    {
+        using var stream = file.OpenRead();
+        return System.Security.Cryptography.SHA256.HashData(stream);
+    }
+}
 /// <summary>Where <see cref="NumberedCopy.To"/> left the file: copied there, or found already there with the same content.</summary>
 public sealed record CopyOutcome(FileInfo File, bool Copied);
