@@ -359,18 +359,42 @@ public sealed class MessageHandlerTests : IDisposable
     }
 
     [Fact]
-    public void A_password_mail_past_the_window_does_not_pair_and_the_old_zip_record_is_dropped()
+    public void A_zip_mail_and_its_password_mail_both_opened_days_after_they_arrived_still_pair()
+    {
+        now = Received.AddDays(3);
+
+        var zip = Handler.Handle(Request("download", ("mail", Mail()), ("path", SaveEncryptedZip())));
+        var reply = Handler.Handle(PasswordMail(passwords: ["Sample-Pass-2026"]));
+
+        Assert.Equal("waiting", (string)zip["state"]!);
+        Assert.Equal("delivered", (string)reply["state"]!);
+        Assert.Equal(SampleFiles, DeliveredFiles());
+    }
+
+    [Fact]
+    public void A_password_mail_received_more_than_24_hours_after_the_zip_mail_does_not_pair()
     {
         Handler.Handle(Request("download", ("mail", Mail()), ("path", SaveEncryptedZip())));
-        now = Received.AddHours(25);
 
         var reply = Handler.Handle(PasswordMail(received: Received.AddHours(25), passwords: ["Sample-Pass-2026"]));
 
         Assert.Equal("waiting", (string)reply["state"]!);
         Assert.False(DeliveryFolder.Exists);
-        Assert.Equal(DeliveryState.None, Status("<m1@example.co.jp>"));
+        Assert.Equal(DeliveryState.Waiting, Status("<m1@example.co.jp>"));
     }
 
+    [Fact]
+    public void A_zip_record_kept_more_than_24_hours_is_dropped()
+    {
+        Handler.Handle(Request("download", ("mail", Mail()), ("path", SaveEncryptedZip())));
+        now = now.AddHours(24).AddMinutes(1);
+
+        var reply = Handler.Handle(PasswordMail(passwords: ["Sample-Pass-2026"]));
+
+        Assert.Equal("waiting", (string)reply["state"]!);
+        Assert.False(DeliveryFolder.Exists);
+        Assert.Equal(DeliveryState.None, Status("<m1@example.co.jp>"));
+    }
     [Fact]
     public void Neither_the_body_nor_a_password_nor_the_sender_address_is_written_to_the_database()
     {
