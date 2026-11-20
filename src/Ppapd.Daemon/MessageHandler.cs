@@ -119,7 +119,7 @@ internal sealed class MessageHandler(
     /// </summary>
     private DeliveryState WaitOrPair(WaitingZip zip)
     {
-        store.AddZip(zip);
+        store.AddZip(zip, now());
         var waiting = store.PasswordsFor(zip.Mail);
         if (waiting.Count == 0)
         {
@@ -148,7 +148,7 @@ internal sealed class MessageHandler(
         var zips = store.ZipsFor(key);
         if (zips.Count == 0)
         {
-            store.AddPasswords(key, candidates);
+            store.AddPasswords(key, candidates, now());
             return DeliveryState.Waiting;
         }
         return zips.Select(zip => TryOpen(zip, candidates)).MinBy(Urgency);

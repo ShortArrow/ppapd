@@ -12,6 +12,6 @@ internal static class PairingWindow
     /// <summary>The largest gap for a pair found only by the same organization, shorter since other people's mail is easier to mistake.</summary>
     public static readonly TimeSpan SameOrganization = TimeSpan.FromHours(1);
 
-    /// <summary>How long after its mail was received a waiting ZIP record or password candidate is kept.</summary>
+    /// <summary>How long a waiting ZIP record or password candidate is kept after the daemon recorded it.</summary>
     public static readonly TimeSpan KeepWaiting = TimeSpan.FromHours(24);
 }

@@ -51,29 +51,36 @@ internal sealed class PairingStore : IDisposable
             CREATE TABLE IF NOT EXISTS waiting_zips (
                 message_id TEXT NOT NULL, conversation_id TEXT NOT NULL, sender TEXT NOT NULL, domain TEXT NOT NULL,
                 received INTEGER NOT NULL, path TEXT NOT NULL, sha256 TEXT NOT NULL, folder TEXT NOT NULL, state TEXT NOT NULL,
+                recorded INTEGER NOT NULL,
                 PRIMARY KEY (message_id, sha256))
             """);
         Execute("""
             CREATE TABLE IF NOT EXISTS waiting_passwords (
                 message_id TEXT NOT NULL PRIMARY KEY, conversation_id TEXT NOT NULL, sender TEXT NOT NULL, domain TEXT NOT NULL,
-                received INTEGER NOT NULL, candidates BLOB NOT NULL)
+                received INTEGER NOT NULL, candidates BLOB NOT NULL, recorded INTEGER NOT NULL)
             """);
     }
 
-    public void AddZip(WaitingZip zip) => Execute(
+    /// <summary>Records <paramref name="zip"/> as waiting since <paramref name="recorded"/>, from which its 24 hours count (F-3.2).</summary>
+    public void AddZip(WaitingZip zip, DateTimeOffset recorded) => Execute(
         """
-        INSERT OR REPLACE INTO waiting_zips (message_id, conversation_id, sender, domain, received, path, sha256, folder, state)
-        VALUES ($message, $conversation, $sender, $domain, $received, $path, $sha, $folder, $state)
+        INSERT OR REPLACE INTO waiting_zips (message_id, conversation_id, sender, domain, received, path, sha256, folder, state, recorded)
+        VALUES ($message, $conversation, $sender, $domain, $received, $path, $sha, $folder, $state, $recorded)
         """,
-        [.. KeyParameters(zip.Mail), ("$path", zip.Path), ("$sha", zip.Sha256), ("$folder", zip.Folder), ("$state", zip.State.ToString())]);
+        [.. KeyParameters(zip.Mail), ("$path", zip.Path), ("$sha", zip.Sha256), ("$folder", zip.Folder), ("$state", zip.State.ToString()),
+         ("$recorded", recorded.ToUnixTimeMilliseconds())]);
 
-    /// <summary>Records <paramref name="candidates"/>, encrypted with DPAPI for the current user (S-4).</summary>
-    public void AddPasswords(MailKey mail, IReadOnlyList<string> candidates) => Execute(
+    /// <summary>
+    /// Records <paramref name="candidates"/>, encrypted with DPAPI for the current user (S-4), as waiting since
+    /// <paramref name="recorded"/>, from which their 24 hours count (F-3.6).
+    /// </summary>
+    public void AddPasswords(MailKey mail, IReadOnlyList<string> candidates, DateTimeOffset recorded) => Execute(
         """
-        INSERT OR REPLACE INTO waiting_passwords (message_id, conversation_id, sender, domain, received, candidates)
-        VALUES ($message, $conversation, $sender, $domain, $received, $candidates)
+        INSERT OR REPLACE INTO waiting_passwords (message_id, conversation_id, sender, domain, received, candidates, recorded)
+        VALUES ($message, $conversation, $sender, $domain, $received, $candidates, $recorded)
         """,
-        [.. KeyParameters(mail), ("$candidates", ProtectedData.Protect(JsonSerializer.SerializeToUtf8Bytes(candidates), null, DataProtectionScope.CurrentUser))]);
+        [.. KeyParameters(mail), ("$candidates", ProtectedData.Protect(JsonSerializer.SerializeToUtf8Bytes(candidates), null, DataProtectionScope.CurrentUser)),
+         ("$recorded", recorded.ToUnixTimeMilliseconds())]);
 
     /// <summary>The ZIPs, not in <see cref="PairingState.Mismatch"/>, that a password mail <paramref name="mail"/> pairs with (F-3.1).</summary>
     public IReadOnlyList<WaitingZip> ZipsFor(MailKey mail) =>
@@ -113,12 +120,15 @@ internal sealed class PairingStore : IDisposable
     public void RemovePasswords(string messageId) => Execute(
         "DELETE FROM waiting_passwords WHERE message_id = $message", [("$message", messageId)]);
 
-    /// <summary>Deletes the records of mail received more than <see cref="PairingWindow.KeepWaiting"/> before <paramref name="now"/> (F-3.2, F-3.6).</summary>
+    /// <summary>
+    /// Deletes the records kept more than <see cref="PairingWindow.KeepWaiting"/> before <paramref name="now"/>, counted from
+    /// when they were recorded, not from when their mail was received (F-3.2, F-3.6).
+    /// </summary>
     public void Purge(DateTimeOffset now)
     {
         var cutoff = (now - PairingWindow.KeepWaiting).ToUnixTimeMilliseconds();
-        Execute("DELETE FROM waiting_zips WHERE received < $cutoff", [("$cutoff", cutoff)]);
-        Execute("DELETE FROM waiting_passwords WHERE received < $cutoff", [("$cutoff", cutoff)]);
+        Execute("DELETE FROM waiting_zips WHERE recorded < $cutoff", [("$cutoff", cutoff)]);
+        Execute("DELETE FROM waiting_passwords WHERE recorded < $cutoff", [("$cutoff", cutoff)]);
     }
 
     /// <summary>
