@@ -127,7 +127,7 @@ internal sealed class MessageHandler(
         {
             return;
         }
-        TryOpen(zip, Limited(waiting.SelectMany(passwords => passwords.Candidates), "download"));
+        TryOpen(zip, Limited(waiting.SelectMany(passwords => passwords.Candidates), "download"), waiting.Select(passwords => passwords.Mail.MessageId).ToList());
         foreach (var passwords in waiting)
         {
             store.RemovePasswords(passwords.Mail.MessageId);
@@ -136,14 +136,23 @@ internal sealed class MessageHandler(
 
     /// <summary>
     /// Opens the ZIPs a password mail pairs with using its <paramref name="candidates"/>, or, when none is waiting, keeps the
-    /// candidates encrypted until a ZIP arrives (F-3.3 to F-3.6). The body is never kept.
+    /// candidates encrypted until a ZIP arrives (F-3.3 to F-3.6). A password mail whose candidates already opened a ZIP is
+    /// neither kept nor tried again (F-3.7). The body is never kept.
     /// </summary>
-    /// <returns>The most pressing outcome over the ZIPs tried, or <see cref="DeliveryState.Waiting"/>.</returns>
+    /// <returns>
+    /// The most pressing outcome over the ZIPs tried, or <see cref="DeliveryState.Waiting"/>; for a mail seen again, the most
+    /// pressing state of the ZIP mails it opened.
+    /// </returns>
     private DeliveryState Process(Mail mail, IReadOnlyList<string> candidates)
     {
         if (candidates.Count == 0)
         {
             throw new RefusedException("passwords is empty.");
+        }
+        var opened = ledger.ZipMailsOpenedBy(mail.MessageId);
+        if (opened.Count > 0)
+        {
+            return opened.Select(ledger.StateOf).MinBy(Urgency);
         }
         var key = KeyOf(mail);
         var tried = Limited(candidates, "process");
@@ -153,7 +162,7 @@ internal sealed class MessageHandler(
             store.AddPasswords(key, tried, now());
             return DeliveryState.Waiting;
         }
-        return zips.Select(zip => TryOpen(zip, tried)).MinBy(Urgency);
+        return zips.Select(zip => TryOpen(zip, tried, [mail.MessageId])).MinBy(Urgency);
     }
 
     /// <summary>
@@ -175,7 +184,8 @@ internal sealed class MessageHandler(
     /// until one delivers it (F-3.5). Each failed try leaves nothing behind (F-4.8). A failure after the ZIP opened is not
     /// a wrong password: it is thrown, and the ZIP keeps waiting.
     /// </summary>
-    private DeliveryState TryOpen(WaitingZip zip, IReadOnlyList<string> candidates)
+    /// <param name="passwordMails">The password mails the candidates came from, recorded as having opened the ZIP when one does (F-6.4).</param>
+    private DeliveryState TryOpen(WaitingZip zip, IReadOnlyList<string> candidates, IReadOnlyList<string> passwordMails)
     {
         FileInfo file;
         try
@@ -209,6 +219,10 @@ internal sealed class MessageHandler(
                 continue;
             }
             ledger.Record(new Delivery(zip.Mail.MessageId, zip.Sha256, folder.FullName, [.. result.Written, .. result.Found], result.Blocked is not null));
+            foreach (var passwordMail in passwordMails)
+            {
+                ledger.RecordOpened(passwordMail, zip.Mail.MessageId);
+            }
             store.RemoveZip(zip.Mail.MessageId, zip.Sha256);
             return ledger.StateOf(zip.Mail.MessageId);
         }

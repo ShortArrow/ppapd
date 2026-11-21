@@ -30,6 +30,12 @@ internal sealed class DeliveryLedger : IDisposable
                 blocked INTEGER NOT NULL DEFAULT 0,
                 PRIMARY KEY (message_id, sha256))
             """);
+        Execute("""
+            CREATE TABLE IF NOT EXISTS opened_by_password_mails (
+                password_message_id TEXT NOT NULL,
+                zip_message_id TEXT NOT NULL,
+                PRIMARY KEY (password_message_id, zip_message_id))
+            """);
     }
 
     /// <summary>Records <paramref name="delivery"/>, its hash in lowercase.</summary>
@@ -84,6 +90,29 @@ internal sealed class DeliveryLedger : IDisposable
         return reader.GetInt64(0) == 0 ? DeliveryState.None
             : reader.GetBoolean(1) ? DeliveryState.Blocked
             : DeliveryState.Delivered;
+    }
+
+    /// <summary>
+    /// Records that the candidates of password mail <paramref name="passwordMessageId"/> opened the ZIP of mail
+    /// <paramref name="zipMessageId"/> (F-6.4); recording it again changes nothing. No password is kept.
+    /// </summary>
+    public void RecordOpened(string passwordMessageId, string zipMessageId) => Execute(
+        "INSERT OR IGNORE INTO opened_by_password_mails (password_message_id, zip_message_id) VALUES ($password, $zip)",
+        ("$password", passwordMessageId), ("$zip", zipMessageId));
+
+    /// <summary>The ZIP mails whose ZIPs the candidates of password mail <paramref name="passwordMessageId"/> opened, in the order recorded (F-3.7).</summary>
+    public IReadOnlyList<string> ZipMailsOpenedBy(string passwordMessageId)
+    {
+        using var command = Command(
+            "SELECT zip_message_id FROM opened_by_password_mails WHERE password_message_id = $password ORDER BY rowid",
+            ("$password", passwordMessageId));
+        using var reader = command.ExecuteReader();
+        var zipMails = new List<string>();
+        while (reader.Read())
+        {
+            zipMails.Add(reader.GetString(0));
+        }
+        return zipMails;
     }
 
     public void Dispose() => connection.Dispose();
