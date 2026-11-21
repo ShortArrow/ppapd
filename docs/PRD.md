@@ -246,6 +246,8 @@ projects:
 
 `mail` は、`messageId`、`conversationId`、`from`（送信者アドレス）、`subject`（件名）、`received`（受信日時。ISO 8601 の文字列）を持つオブジェクトとする。
 
+`process` の応答の `state` は、パスワードメール自身の状態ではなく、その候補で解凍を試した ZIP メールの状態とする。試した ZIP が複数あれば F-2.4 の順で先のものを、試す ZIP がまだなければ `waiting` を返す。パスワードメール自身のバッジは `status` で問い合わせる。
+
 `state` は次のどれかで、F-2.2 と F-2.4 のバッジの状態に対応する。
 
 | `state` | 意味 |
