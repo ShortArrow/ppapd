@@ -396,6 +396,38 @@ public sealed class MessageHandlerTests : IDisposable
         Assert.Equal(DeliveryState.None, Status("<m1@example.co.jp>"));
     }
     [Fact]
+    public void A_file_downloaded_while_an_encrypted_zip_of_the_same_mail_waits_is_answered_with_the_state_status_gives()
+    {
+        Handler.Handle(Request("download", ("mail", Mail()), ("path", SaveEncryptedZip())));
+
+        var reply = Handler.Handle(Request("download", ("mail", Mail()), ("path", SaveDownload("readme.txt", "hello\n"))));
+
+        Assert.Equal(Status("<m1@example.co.jp>"), Enum.Parse<DeliveryState>((string)reply["state"]!, ignoreCase: true));
+    }
+
+    [Fact]
+    public void An_encrypted_zip_downloaded_after_a_blocked_zip_of_the_same_mail_is_answered_with_the_state_status_gives()
+    {
+        Handler.Handle(Request("download", ("mail", Mail()), ("path", SaveZip("climb.zip", "../outside.txt"))));
+
+        var reply = Handler.Handle(Request("download", ("mail", Mail()), ("path", SaveEncryptedZip())));
+
+        Assert.Equal(Status("<m1@example.co.jp>"), Enum.Parse<DeliveryState>((string)reply["state"]!, ignoreCase: true));
+    }
+
+    [Fact]
+    public void A_file_downloaded_again_while_an_encrypted_zip_of_the_same_mail_waits_is_answered_with_the_state_status_gives()
+    {
+        var path = SaveDownload("readme.txt", "hello\n");
+        Handler.Handle(Request("download", ("mail", Mail()), ("path", path)));
+        Handler.Handle(Request("download", ("mail", Mail()), ("path", SaveEncryptedZip())));
+
+        var reply = Handler.Handle(Request("download", ("mail", Mail()), ("path", path)));
+
+        Assert.Equal(Status("<m1@example.co.jp>"), Enum.Parse<DeliveryState>((string)reply["state"]!, ignoreCase: true));
+    }
+
+    [Fact]
     public void Neither_the_body_nor_a_password_nor_the_sender_address_is_written_to_the_database()
     {
         Handler.Handle(PasswordMail(passwords: ["Sample-Pass-2026"]));
