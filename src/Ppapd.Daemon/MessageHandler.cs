@@ -127,7 +127,7 @@ internal sealed class MessageHandler(
         {
             return;
         }
-        TryOpen(zip, waiting.SelectMany(passwords => passwords.Candidates).Distinct().ToList());
+        TryOpen(zip, Limited(waiting.SelectMany(passwords => passwords.Candidates), "download"));
         foreach (var passwords in waiting)
         {
             store.RemovePasswords(passwords.Mail.MessageId);
@@ -146,13 +146,28 @@ internal sealed class MessageHandler(
             throw new RefusedException("passwords is empty.");
         }
         var key = KeyOf(mail);
+        var tried = Limited(candidates, "process");
         var zips = store.ZipsFor(key);
         if (zips.Count == 0)
         {
-            store.AddPasswords(key, candidates, now());
+            store.AddPasswords(key, tried, now());
             return DeliveryState.Waiting;
         }
-        return zips.Select(zip => TryOpen(zip, candidates)).MinBy(Urgency);
+        return zips.Select(zip => TryOpen(zip, tried)).MinBy(Urgency);
+    }
+
+    /// <summary>
+    /// The candidates to try, at most <see cref="PasswordCandidates.MaxTried"/> (F-3.5); how many were left out is logged,
+    /// never the candidates themselves (S-4).
+    /// </summary>
+    private IReadOnlyList<string> Limited(IEnumerable<string> candidates, string type)
+    {
+        var (tried, leftOut) = PasswordCandidates.Limit(candidates);
+        if (leftOut > 0)
+        {
+            log($"{type}: {leftOut} password candidates past the first {PasswordCandidates.MaxTried} were not tried");
+        }
+        return tried;
     }
 
     /// <summary>
