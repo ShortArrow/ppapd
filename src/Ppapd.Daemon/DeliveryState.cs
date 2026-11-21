@@ -21,3 +21,22 @@ internal enum DeliveryState
     /// <summary><c>blocked</c>: one of its ZIPs was blocked (F-4.7).</summary>
     Blocked,
 }
+/// <summary>The one badge of a mail in several states at once (docs/PRD.md, F-2.4).</summary>
+internal static class DeliveryStates
+{
+    /// <summary>
+    /// The state F-2.4 puts first among <paramref name="states"/>: blocked, mismatch, extract failed, waiting, delivered,
+    /// then none; <see cref="DeliveryState.None"/> when there are none.
+    /// </summary>
+    public static DeliveryState MostPressing(IEnumerable<DeliveryState> states) => states.Append(DeliveryState.None).MinBy(Urgency);
+
+    private static int Urgency(DeliveryState state) => state switch
+    {
+        DeliveryState.Blocked => 0,
+        DeliveryState.Mismatch => 1,
+        DeliveryState.ExtractFailed => 2,
+        DeliveryState.Waiting => 3,
+        DeliveryState.Delivered => 4,
+        _ => 5,
+    };
+}

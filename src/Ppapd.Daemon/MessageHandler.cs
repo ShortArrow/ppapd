@@ -152,7 +152,7 @@ internal sealed class MessageHandler(
         var opened = ledger.ZipMailsOpenedBy(mail.MessageId);
         if (opened.Count > 0)
         {
-            return opened.Select(ledger.StateOf).MinBy(Urgency);
+            return DeliveryStates.MostPressing(opened.Select(ledger.StateOf));
         }
         var key = KeyOf(mail);
         var tried = Limited(candidates, "process");
@@ -162,7 +162,7 @@ internal sealed class MessageHandler(
             store.AddPasswords(key, tried, now());
             return DeliveryState.Waiting;
         }
-        return zips.Select(zip => TryOpen(zip, tried, [mail.MessageId])).MinBy(Urgency);
+        return DeliveryStates.MostPressing(zips.Select(zip => TryOpen(zip, tried, [mail.MessageId])));
     }
 
     /// <summary>
@@ -238,18 +238,7 @@ internal sealed class MessageHandler(
     }
 
     /// <summary>The badge of a mail: the most pressing of what the ledger and the waiting records know of it.</summary>
-    private DeliveryState StateOf(string messageId) => new[] { ledger.StateOf(messageId), store.StateOf(messageId) }.MinBy(Urgency);
-
-    /// <summary>Lower is more pressing for the user: a blocked ZIP, then a ZIP that cannot be opened, then one still waiting, then a delivery.</summary>
-    private static int Urgency(DeliveryState state) => state switch
-    {
-        DeliveryState.Blocked => 0,
-        DeliveryState.Mismatch => 1,
-        DeliveryState.ExtractFailed => 2,
-        DeliveryState.Waiting => 3,
-        DeliveryState.Delivered => 4,
-        _ => 5,
-    };
+    private DeliveryState StateOf(string messageId) => DeliveryStates.MostPressing([ledger.StateOf(messageId), store.StateOf(messageId)]);
 
     private MailKey KeyOf(Mail mail) => new(
         mail.MessageId, mail.ConversationId, hashes.OfAddress(mail.From), hashes.OfDomain(mail.From[(mail.From.LastIndexOf('@') + 1)..]), mail.Metadata.Received);

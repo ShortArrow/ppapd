@@ -150,16 +150,8 @@ internal sealed class PairingStore : IDisposable
                 states.Add(DeliveryState.Waiting);
             }
         }
-        return states.Count == 0 ? DeliveryState.None : states.MinBy(Urgency);
+        return DeliveryStates.MostPressing(states);
     }
-
-    /// <summary>Lower is more pressing for the user.</summary>
-    private static int Urgency(DeliveryState state) => state switch
-    {
-        DeliveryState.Mismatch => 0,
-        DeliveryState.ExtractFailed => 1,
-        _ => 2,
-    };
 
     public void Dispose() => connection.Dispose();
 
