@@ -427,6 +427,41 @@ public sealed class MessageHandlerTests : IDisposable
         Assert.Equal(Status("<m1@example.co.jp>"), Enum.Parse<DeliveryState>((string)reply["state"]!, ignoreCase: true));
     }
 
+    [Fact]
+    public void Reopening_a_password_mail_whose_zip_came_first_and_was_delivered_leaves_its_state_as_it_was()
+    {
+        Handler.Handle(Request("download", ("mail", Mail()), ("path", SaveEncryptedZip())));
+        Handler.Handle(PasswordMail(passwords: ["Sample-Pass-2026"]));
+        var before = Status("<pw@example.co.jp>");
+
+        var reply = Handler.Handle(PasswordMail(passwords: ["Sample-Pass-2026"]));
+
+        Assert.Equal(before, Status("<pw@example.co.jp>"));
+        Assert.Equal("delivered", (string)reply["state"]!);
+    }
+
+    [Fact]
+    public void Reopening_a_password_mail_that_came_first_and_was_used_leaves_its_state_as_it_was()
+    {
+        Handler.Handle(PasswordMail(passwords: ["Sample-Pass-2026"]));
+        Handler.Handle(Request("download", ("mail", Mail(received: Received.AddMinutes(2))), ("path", SaveEncryptedZip())));
+        var before = Status("<pw@example.co.jp>");
+
+        var reply = Handler.Handle(PasswordMail(passwords: ["Sample-Pass-2026"]));
+
+        Assert.Equal(before, Status("<pw@example.co.jp>"));
+        Assert.Equal("delivered", (string)reply["state"]!);
+    }
+
+    [Fact]
+    public void A_password_mail_whose_candidates_all_failed_is_not_recorded_as_having_opened_a_zip()
+    {
+        Handler.Handle(Request("download", ("mail", Mail()), ("path", SaveEncryptedZip())));
+        Handler.Handle(PasswordMail(passwords: ["wrong"]));
+
+        Assert.Empty(ledger.ZipMailsOpenedBy("<pw@example.co.jp>"));
+    }
+
     private static string[] Wrong(int count) => Enumerable.Range(1, count).Select(i => $"wrong-{i}").ToArray();
 
     [Fact]

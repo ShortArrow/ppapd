@@ -110,6 +110,22 @@ public sealed class DeliveryLedgerTests : IDisposable
         Assert.True(ledger.DeliveriesOf(Example.MessageId)[1].Blocked);
     }
 
+    [Fact]
+    public void The_zip_mails_a_password_mail_opened_are_kept_across_reopening_and_recorded_once()
+    {
+        using (var ledger = new DeliveryLedger(DatabasePath))
+        {
+            ledger.RecordOpened("<pw>", "<zip-1>");
+            ledger.RecordOpened("<pw>", "<zip-2>");
+            ledger.RecordOpened("<pw>", "<zip-1>");
+        }
+
+        using var reopened = new DeliveryLedger(DatabasePath);
+
+        Assert.Equal(["<zip-1>", "<zip-2>"], reopened.ZipMailsOpenedBy("<pw>"));
+        Assert.Empty(reopened.ZipMailsOpenedBy("<other>"));
+    }
+
     /// <summary>Compares deliveries by value, file names included, since a record compares lists by reference.</summary>
     private sealed class DeliveryComparer : IEqualityComparer<Delivery>
     {
