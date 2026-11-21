@@ -77,6 +77,7 @@ internal sealed class MessageHandler(
     };
 
     /// <summary>Delivers the downloaded file at <paramref name="path"/> for <paramref name="mail"/> (F-5, F-6).</summary>
+    /// <returns>The badge of <paramref name="mail"/>, the same <c>status</c> gives.</returns>
     private DeliveryState Download(Mail mail, string path)
     {
         var current = settings();
@@ -92,12 +93,13 @@ internal sealed class MessageHandler(
         var sha256 = Convert.ToHexStringLower(NumberedCopy.Sha256Of(file));
         if (ledger.Has(mail.MessageId, sha256))
         {
-            return ledger.StateOf(mail.MessageId);
+            return StateOf(mail.MessageId);
         }
         var isZip = file.Extension.Equals(".zip", StringComparison.OrdinalIgnoreCase);
         if (isZip && IsEncrypted(file))
         {
-            return WaitOrPair(new WaitingZip(KeyOf(mail), file.FullName, sha256, FolderFor(current.Rules, mail).FullName, PairingState.Waiting));
+            WaitOrPair(new WaitingZip(KeyOf(mail), file.FullName, sha256, FolderFor(current.Rules, mail).FullName, PairingState.Waiting));
+            return StateOf(mail.MessageId);
         }
         var folder = FolderFor(current.Rules, mail);
         var created = CreateMissing(folder);
@@ -110,27 +112,26 @@ internal sealed class MessageHandler(
             RemoveIfEmpty(created);
             throw;
         }
-        return ledger.StateOf(mail.MessageId);
+        return StateOf(mail.MessageId);
     }
 
     /// <summary>
     /// Records an encrypted ZIP as waiting, then opens it with the candidates of the password mails it pairs with, if any
     /// have arrived (F-3.2, F-3.6). Those candidates are dropped once tried.
     /// </summary>
-    private DeliveryState WaitOrPair(WaitingZip zip)
+    private void WaitOrPair(WaitingZip zip)
     {
         store.AddZip(zip, now());
         var waiting = store.PasswordsFor(zip.Mail);
         if (waiting.Count == 0)
         {
-            return DeliveryState.Waiting;
+            return;
         }
-        var state = TryOpen(zip, waiting.SelectMany(passwords => passwords.Candidates).Distinct().ToList());
+        TryOpen(zip, waiting.SelectMany(passwords => passwords.Candidates).Distinct().ToList());
         foreach (var passwords in waiting)
         {
             store.RemovePasswords(passwords.Mail.MessageId);
         }
-        return state;
     }
 
     /// <summary>
