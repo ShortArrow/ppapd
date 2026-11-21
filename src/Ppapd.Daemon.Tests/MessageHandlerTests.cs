@@ -427,6 +427,53 @@ public sealed class MessageHandlerTests : IDisposable
         Assert.Equal(Status("<m1@example.co.jp>"), Enum.Parse<DeliveryState>((string)reply["state"]!, ignoreCase: true));
     }
 
+    private static string[] Wrong(int count) => Enumerable.Range(1, count).Select(i => $"wrong-{i}").ToArray();
+
+    [Fact]
+    public void The_tenth_candidate_is_still_tried()
+    {
+        Handler.Handle(Request("download", ("mail", Mail()), ("path", SaveEncryptedZip())));
+
+        var reply = Handler.Handle(PasswordMail(passwords: [.. Wrong(9), "Sample-Pass-2026"]));
+
+        Assert.Equal("delivered", (string)reply["state"]!);
+    }
+
+    [Fact]
+    public void Candidates_past_the_tenth_are_not_tried_and_only_their_number_is_logged()
+    {
+        Handler.Handle(Request("download", ("mail", Mail()), ("path", SaveEncryptedZip())));
+
+        var reply = Handler.Handle(PasswordMail(passwords: [.. Wrong(10), "Sample-Pass-2026", "wrong-12"]));
+
+        Assert.Equal("extractFailed", (string)reply["state"]!);
+        Assert.False(DeliveryFolder.Exists);
+        Assert.Contains(log, line => line.Contains(" 2 "));
+        Assert.DoesNotContain(log, line => line.Contains("Sample-Pass-2026") || line.Contains("wrong-"));
+    }
+
+    [Fact]
+    public void A_password_mail_that_came_first_keeps_only_its_first_ten_candidates()
+    {
+        Handler.Handle(PasswordMail(passwords: [.. Wrong(10), "Sample-Pass-2026"]));
+
+        var kept = store.PasswordsFor(new MailKey("<any>", "c1", "", "", Received)).Single().Candidates;
+
+        Assert.Equal(Wrong(10), kept);
+    }
+
+    [Fact]
+    public void Candidates_of_several_waiting_password_mails_count_together_the_newest_mail_first()
+    {
+        Handler.Handle(PasswordMail(messageId: "<pw-old@example.co.jp>", received: Received.AddMinutes(1), passwords: ["Sample-Pass-2026"]));
+        Handler.Handle(PasswordMail(messageId: "<pw-new@example.co.jp>", received: Received.AddMinutes(2), passwords: Wrong(10)));
+
+        var reply = Handler.Handle(Request("download", ("mail", Mail(received: Received.AddMinutes(3))), ("path", SaveEncryptedZip())));
+
+        Assert.Equal("extractFailed", (string)reply["state"]!);
+        Assert.Contains(log, line => line.Contains(" 1 "));
+    }
+
     [Fact]
     public void Neither_the_body_nor_a_password_nor_the_sender_address_is_written_to_the_database()
     {
@@ -485,11 +532,12 @@ public sealed class MessageHandlerTests : IDisposable
         ["received"] = (received ?? Received).ToString("O"),
     };
 
-    private static JsonObject PasswordMail(string conversation = "c1", DateTimeOffset? received = null, params string[] passwords)
+    private static JsonObject PasswordMail(
+        string conversation = "c1", DateTimeOffset? received = null, string messageId = "<pw@example.co.jp>", params string[] passwords)
     {
         var request = Request(
             "process",
-            ("mail", Mail(subject: "パスワードのお知らせ", messageId: "<pw@example.co.jp>", conversation: conversation, received: received ?? Received.AddMinutes(1))),
+            ("mail", Mail(subject: "パスワードのお知らせ", messageId: messageId, conversation: conversation, received: received ?? Received.AddMinutes(1))),
             ("body", "お世話になっております。パスワード：" + string.Join(" ", passwords)));
         request["passwords"] = new JsonArray(passwords.Select(password => (JsonNode)password).ToArray());
         return request;
