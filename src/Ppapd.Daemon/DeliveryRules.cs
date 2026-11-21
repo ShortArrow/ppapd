@@ -21,4 +21,8 @@ internal sealed record SenderAlias(string? Domain, string? Address, string Name)
 internal sealed record ProjectRule(string Project, string? FromDomain, string? SubjectRegex);
 
 /// <summary>What the delivery folder is decided from, taken from the mail that holds the file or its link.</summary>
-internal sealed record MailMetadata(string SenderAddress, string Subject, DateTimeOffset Received);
+internal sealed record MailMetadata(string SenderAddress, string Subject, DateTimeOffset Received)
+{
+    /// <summary>What follows the last <c>@</c> of <see cref="SenderAddress"/>, or all of it when it has none.</summary>
+    public string SenderDomain => SenderAddress[(SenderAddress.LastIndexOf('@') + 1)..];
+}

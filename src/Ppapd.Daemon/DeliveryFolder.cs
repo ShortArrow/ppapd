@@ -13,7 +13,7 @@ internal static partial class DeliveryFolder
     /// <exception cref="OutsideProjectsRootException">The folder does not resolve under the projects root.</exception>
     public static DeliveryDecision For(DeliveryRules rules, MailMetadata mail)
     {
-        var domain = DomainOf(mail.SenderAddress);
+        var domain = mail.SenderDomain;
         var timedOut = new List<ProjectRule>();
         var path = Path.Combine(
             rules.ProjectsRoot,
@@ -30,7 +30,7 @@ internal static partial class DeliveryFolder
     public static MatchDecision Matches(DeliveryRules rules, MailMetadata mail)
     {
         var timedOut = new List<ProjectRule>();
-        return new MatchDecision(FirstMatch(rules, DomainOf(mail.SenderAddress), mail.Subject, timedOut) is not null, timedOut);
+        return new MatchDecision(FirstMatch(rules, mail.SenderDomain, mail.Subject, timedOut) is not null, timedOut);
     }
 
     /// <summary>How long one rule's <c>subject_regex</c> may run on a subject (docs/PRD.md, §6.2).</summary>
@@ -48,8 +48,6 @@ internal static partial class DeliveryFolder
         }
         return new DirectoryInfo(full);
     }
-
-    private static string DomainOf(string address) => address[(address.LastIndexOf('@') + 1)..];
 
     private static string ProjectOf(DeliveryRules rules, string domain, string subject, List<ProjectRule> timedOut) =>
         FirstMatch(rules, domain, subject, timedOut) is var (rule, match)

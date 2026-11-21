@@ -90,7 +90,7 @@ internal sealed class MessageHandler(
         {
             throw new RefusedException("The path is not a file under the download folder.");
         }
-        var sha256 = Convert.ToHexStringLower(NumberedCopy.Sha256Of(file));
+        var sha256 = Sha256Of(file);
         if (ledger.Has(mail.MessageId, sha256))
         {
             return StateOf(mail.MessageId);
@@ -196,7 +196,7 @@ internal sealed class MessageHandler(
         {
             return Mismatch(zip);
         }
-        if (Convert.ToHexStringLower(NumberedCopy.Sha256Of(file)) != zip.Sha256)
+        if (Sha256Of(file) != zip.Sha256)
         {
             return Mismatch(zip);
         }
@@ -218,7 +218,7 @@ internal sealed class MessageHandler(
             {
                 continue;
             }
-            ledger.Record(new Delivery(zip.Mail.MessageId, zip.Sha256, folder.FullName, [.. result.Written, .. result.Found], result.Blocked is not null));
+            ledger.Record(DeliveryOf(zip.Mail.MessageId, zip.Sha256, folder, result));
             foreach (var passwordMail in passwordMails)
             {
                 ledger.RecordOpened(passwordMail, zip.Mail.MessageId);
@@ -241,7 +241,7 @@ internal sealed class MessageHandler(
     private DeliveryState StateOf(string messageId) => DeliveryStates.MostPressing([ledger.StateOf(messageId), store.StateOf(messageId)]);
 
     private MailKey KeyOf(Mail mail) => new(
-        mail.MessageId, mail.ConversationId, hashes.OfAddress(mail.From), hashes.OfDomain(mail.From[(mail.From.LastIndexOf('@') + 1)..]), mail.Metadata.Received);
+        mail.MessageId, mail.ConversationId, hashes.OfAddress(mail.From), hashes.OfDomain(mail.Metadata.SenderDomain), mail.Metadata.Received);
 
     private bool Match(Mail mail)
     {
@@ -308,11 +308,13 @@ internal sealed class MessageHandler(
         return ZipExtractor.IsEncrypted(stream);
     }
 
-    private Delivery DeliverZip(Mail mail, FileInfo zip, string sha256, DirectoryInfo folder)
-    {
-        var result = ZipDelivery.Deliver(zip, folder, password: null, work);
-        return new Delivery(mail.MessageId, sha256, folder.FullName, [.. result.Written, .. result.Found], result.Blocked is not null);
-    }
+    private Delivery DeliverZip(Mail mail, FileInfo zip, string sha256, DirectoryInfo folder) =>
+        DeliveryOf(mail.MessageId, sha256, folder, ZipDelivery.Deliver(zip, folder, password: null, work));
+
+    private static Delivery DeliveryOf(string messageId, string sha256, DirectoryInfo folder, ZipDeliveryResult result) =>
+        new(messageId, sha256, folder.FullName, [.. result.Written, .. result.Found], result.Blocked is not null);
+
+    private static string Sha256Of(FileInfo file) => Convert.ToHexStringLower(NumberedCopy.Sha256Of(file));
 
     private static Delivery DeliverFile(Mail mail, FileInfo file, string sha256, DirectoryInfo folder)
     {
