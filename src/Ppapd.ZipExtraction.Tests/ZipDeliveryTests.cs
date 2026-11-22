@@ -306,6 +306,20 @@ public sealed class ZipDeliveryTests : IDisposable
         }
     }
 
+    [Fact]
+    public void Files_that_cannot_take_the_mark_are_still_delivered_and_reported_unmarked()
+    {
+        var zip = SaveZipWith("見積書.zip", "readme.txt");
+        File.WriteAllBytes(zip.FullName + ":Zone.Identifier", InternetMark);
+
+        var result = ZipDelivery.Deliver(zip, destination, password: null, Work, applyMark: (_, _) => false);
+
+        Assert.Null(result.Blocked);
+        Assert.Equal(["readme.txt"], result.Written);
+        Assert.Equal(["readme.txt"], result.Unmarked);
+        Assert.Equal(["readme.txt"], WrittenFiles().Keys);
+    }
+
     private byte[]? MarkOf(string name)
     {
         var stream = Path.Combine(destination.FullName, name.Replace('/', Path.DirectorySeparatorChar)) + ":Zone.Identifier";

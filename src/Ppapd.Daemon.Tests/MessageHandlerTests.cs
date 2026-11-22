@@ -107,6 +107,21 @@ public sealed class MessageHandlerTests : IDisposable
     }
 
     [Fact]
+    public void A_zip_whose_files_cannot_take_the_internet_mark_is_still_delivered_and_the_failure_is_logged()
+    {
+        var path = SaveZip("図面一式.zip", "図面/A-001.txt");
+        var handler = new MessageHandler(
+            settings, ledger, store, hashes, new WorkFolders(temp.CreateSubdirectory("work")), () => now, revealed.Add, log.Add,
+            applyMark: (_, _) => false);
+
+        var reply = handler.Handle(Request("download", ("mail", Mail()), ("path", path)));
+
+        Assert.Equal("delivered", (string)reply["state"]!);
+        Assert.True(File.Exists(Path.Combine(DeliveryFolder.FullName, "図面", "A-001.txt")));
+        Assert.Contains(log, line => line.Contains("internet mark"));
+    }
+
+    [Fact]
     public void Downloading_a_zip_that_climbs_out_is_blocked_with_its_notice_and_the_mail_shows_blocked()
     {
         var path = SaveZip("見積書.zip", "../outside.txt");
