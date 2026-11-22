@@ -253,6 +253,65 @@ public sealed class ZipDeliveryTests : IDisposable
         return archive.GetEntry(name)!.Length;
     }
 
+    private static readonly byte[] InternetMark = Encoding.ASCII.GetBytes("[ZoneTransfer]\r\nZoneId=3\r\nHostUrl=https://outlook.office.com/\r\n");
+
+    [Fact]
+    public void Files_extracted_from_a_marked_zip_and_its_repacked_zip_carry_the_same_internet_mark()
+    {
+        var zip = new FileInfo(Path.Combine(downloads.FullName, "ppap-zipcrypto-utf8.zip"));
+        File.Copy(SampleFixtures.Path(zip.Name), zip.FullName);
+        File.WriteAllBytes(zip.FullName + ":Zone.Identifier", InternetMark);
+
+        var written = ZipDelivery.Deliver(zip, destination, SampleFixtures.Password, Work).Written;
+
+        Assert.Contains(zip.Name, written);
+        Assert.All(written, name => Assert.Equal(InternetMark, MarkOf(name)));
+    }
+
+    [Fact]
+    public void A_mark_written_by_an_entry_gives_way_to_the_mark_of_the_zip()
+    {
+        var zip = SaveZipWith("見積書.zip", "doc.docm", "doc.docm:Zone.Identifier");
+        File.WriteAllBytes(zip.FullName + ":Zone.Identifier", InternetMark);
+
+        ZipDelivery.Deliver(zip, destination, password: null, Work);
+
+        Assert.Equal(InternetMark, MarkOf("doc.docm"));
+    }
+
+    [Fact]
+    public void Files_from_a_zip_without_a_mark_carry_none_even_when_an_entry_wrote_one()
+    {
+        var zip = SaveZipWith("見積書.zip", "readme.txt", "doc.docm", "doc.docm:Zone.Identifier");
+
+        var written = ZipDelivery.Deliver(zip, destination, password: null, Work).Written;
+
+        Assert.All(written, name => Assert.Null(MarkOf(name)));
+    }
+
+    [Fact]
+    public void Marking_a_file_that_cannot_take_the_mark_leaves_it_as_it_was_and_says_so()
+    {
+        var file = new FileInfo(Path.Combine(destination.FullName, "readonly.txt"));
+        File.WriteAllText(file.FullName, "sample\n");
+        file.IsReadOnly = true;
+        try
+        {
+            Assert.False(ZoneMark.Apply(file, InternetMark));
+            Assert.Null(MarkOf("readonly.txt"));
+        }
+        finally
+        {
+            file.IsReadOnly = false;
+        }
+    }
+
+    private byte[]? MarkOf(string name)
+    {
+        var stream = Path.Combine(destination.FullName, name.Replace('/', Path.DirectorySeparatorChar)) + ":Zone.Identifier";
+        return File.Exists(stream) ? File.ReadAllBytes(stream) : null;
+    }
+
     /// <summary>Saves into the download folder an unencrypted ZIP holding each of <paramref name="entryNames"/>.</summary>
     private FileInfo SaveZipWith(string zipName, params string[] entryNames)
     {
