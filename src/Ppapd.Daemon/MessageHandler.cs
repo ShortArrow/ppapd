@@ -15,6 +15,7 @@ namespace Ppapd.Daemon;
 /// <param name="log">
 /// Records an error. Lines hold no body, password, subject or plain address (S-4, S-6), only rules, paths and exception types.
 /// </param>
+/// <param name="applyMark">Gives a file delivered from a ZIP the mark of the ZIP (F-4.9); <see cref="ZoneMark.Apply"/> by default.</param>
 internal sealed class MessageHandler(
     Func<Settings> settings,
     DeliveryLedger ledger,
@@ -23,7 +24,8 @@ internal sealed class MessageHandler(
     WorkFolders work,
     Func<DateTimeOffset> now,
     Action<DirectoryInfo> reveal,
-    Action<string> log)
+    Action<string> log,
+    Func<FileInfo, byte[]?, bool>? applyMark = null)
 {
     private static readonly JsonNamingPolicy StateNames = JsonNamingPolicy.CamelCase;
 
@@ -207,7 +209,7 @@ internal sealed class MessageHandler(
             ZipDeliveryResult result;
             try
             {
-                result = ZipDelivery.Deliver(file, folder, candidate, work);
+                result = ZipDelivery.Deliver(file, folder, candidate, work, applyMark);
             }
             catch (DeliveryCopyException)
             {
@@ -309,7 +311,7 @@ internal sealed class MessageHandler(
     }
 
     private Delivery DeliverZip(Mail mail, FileInfo zip, string sha256, DirectoryInfo folder) =>
-        DeliveryOf(mail.MessageId, sha256, folder, LogUnmarked(ZipDelivery.Deliver(zip, folder, password: null, work)));
+        DeliveryOf(mail.MessageId, sha256, folder, LogUnmarked(ZipDelivery.Deliver(zip, folder, password: null, work, applyMark)));
 
     /// <summary>Logs how many delivered files could not take the internet mark of their ZIP (docs/PRD.md, F-4.9).</summary>
     private ZipDeliveryResult LogUnmarked(ZipDeliveryResult result)

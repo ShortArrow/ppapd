@@ -15,6 +15,7 @@ public static class ZipDelivery
     /// <param name="destination">An existing folder to deliver into.</param>
     /// <param name="password">The password of an encrypted ZIP; <c>null</c> for an unencrypted one.</param>
     /// <param name="work">Where the ZIP is extracted and repacked before delivery.</param>
+    /// <param name="applyMark">Gives a written file the mark of the ZIP, as <see cref="ZoneMark.Apply"/> does, which it is by default.</param>
     /// <returns>Why the ZIP was blocked, if it was, and the files written and found already there.</returns>
     /// <exception cref="Exception">
     /// Extraction or repacking failed, for instance on a wrong password or corrupt data. Nothing of the ZIP is
@@ -23,8 +24,9 @@ public static class ZipDelivery
     /// <exception cref="DeliveryCopyException">
     /// The ZIP opened but copying into <paramref name="destination"/> failed; what was copied has been removed (F-4.8).
     /// </exception>
-    public static ZipDeliveryResult Deliver(FileInfo zip, DirectoryInfo destination, string? password, WorkFolders work)
+    public static ZipDeliveryResult Deliver(FileInfo zip, DirectoryInfo destination, string? password, WorkFolders work, Func<FileInfo, byte[]?, bool>? applyMark = null)
     {
+        applyMark ??= ZoneMark.Apply;
         using var folder = work.Create();
         if (Prepare(zip, folder, password) is { } reason)
         {
@@ -46,7 +48,7 @@ public static class ZipDelivery
             null,
             copied.Select(file => RelativeName(file, destination)).ToList(),
             outcomes.Where(outcome => !outcome.Copied).Select(outcome => RelativeName(outcome.File, destination)).ToList(),
-            copied.Where(file => !ZoneMark.Apply(file, mark)).Select(file => RelativeName(file, destination)).ToList());
+            copied.Where(file => !applyMark(file, mark)).Select(file => RelativeName(file, destination)).ToList());
     }
 
     private static string RelativeName(FileInfo file, DirectoryInfo destination) =>
