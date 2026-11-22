@@ -6,7 +6,9 @@ public static class ZipDelivery
     /// <summary>
     /// Extracts <paramref name="zip"/> and, when a password is given, repacks it without the password under its own name
     /// (F-4.4), both in a new folder of <paramref name="work"/>; then copies the result into <paramref name="destination"/>.
-    /// When the ZIP is blocked (F-4.3, F-4.6), writes only <c>&lt;ZIP name&gt;.blocked.txt</c> there (F-4.7).
+    /// Each file written there takes the internet mark of <paramref name="zip"/>, or none when it has none, in place of any
+    /// mark an entry wrote (F-4.9). When the ZIP is blocked (F-4.3, F-4.6), writes only <c>&lt;ZIP name&gt;.blocked.txt</c>
+    /// there (F-4.7).
     /// The work folder is deleted in every case.
     /// </summary>
     /// <param name="zip">The ZIP in the download folder.</param>
@@ -27,7 +29,7 @@ public static class ZipDelivery
         if (Prepare(zip, folder, password) is { } reason)
         {
             BlockedNotice.Write(destination, zip.Name, reason);
-            return new ZipDeliveryResult(reason, [zip.Name + ".blocked.txt"], []);
+            return new ZipDeliveryResult(reason, [zip.Name + ".blocked.txt"], [], []);
         }
         List<CopyOutcome> outcomes;
         try
@@ -38,10 +40,13 @@ public static class ZipDelivery
         {
             throw new DeliveryCopyException(e);
         }
+        var copied = outcomes.Where(outcome => outcome.Copied).Select(outcome => outcome.File).ToList();
+        var mark = ZoneMark.Of(zip);
         return new ZipDeliveryResult(
             null,
-            outcomes.Where(outcome => outcome.Copied).Select(outcome => RelativeName(outcome.File, destination)).ToList(),
-            outcomes.Where(outcome => !outcome.Copied).Select(outcome => RelativeName(outcome.File, destination)).ToList());
+            copied.Select(file => RelativeName(file, destination)).ToList(),
+            outcomes.Where(outcome => !outcome.Copied).Select(outcome => RelativeName(outcome.File, destination)).ToList(),
+            copied.Where(file => !ZoneMark.Apply(file, mark)).Select(file => RelativeName(file, destination)).ToList());
     }
 
     private static string RelativeName(FileInfo file, DirectoryInfo destination) =>
@@ -183,7 +188,8 @@ public static class ZipDelivery
 /// <param name="Blocked">Why the ZIP was blocked, or <c>null</c> when it was delivered.</param>
 /// <param name="Written">The files written, the notice alone when blocked.</param>
 /// <param name="Found">The files not written because the same content was already there under these names (F-6.3).</param>
-public sealed record ZipDeliveryResult(BlockReason? Blocked, IReadOnlyList<string> Written, IReadOnlyList<string> Found);
+/// <param name="Unmarked">The files of <paramref name="Written"/> that could not take the mark of the ZIP (F-4.9).</param>
+public sealed record ZipDeliveryResult(BlockReason? Blocked, IReadOnlyList<string> Written, IReadOnlyList<string> Found, IReadOnlyList<string> Unmarked);
 
 /// <summary>A ZIP that opened could not be copied into its delivery folder; told apart from a wrong password (docs/PRD.md, F-3.5).</summary>
 public sealed class DeliveryCopyException(Exception inner) : IOException("Copying into the delivery folder failed.", inner);

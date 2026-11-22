@@ -218,7 +218,7 @@ internal sealed class MessageHandler(
             {
                 continue;
             }
-            ledger.Record(DeliveryOf(zip.Mail.MessageId, zip.Sha256, folder, result));
+            ledger.Record(DeliveryOf(zip.Mail.MessageId, zip.Sha256, folder, LogUnmarked(result)));
             foreach (var passwordMail in passwordMails)
             {
                 ledger.RecordOpened(passwordMail, zip.Mail.MessageId);
@@ -309,7 +309,17 @@ internal sealed class MessageHandler(
     }
 
     private Delivery DeliverZip(Mail mail, FileInfo zip, string sha256, DirectoryInfo folder) =>
-        DeliveryOf(mail.MessageId, sha256, folder, ZipDelivery.Deliver(zip, folder, password: null, work));
+        DeliveryOf(mail.MessageId, sha256, folder, LogUnmarked(ZipDelivery.Deliver(zip, folder, password: null, work)));
+
+    /// <summary>Logs how many delivered files could not take the internet mark of their ZIP (docs/PRD.md, F-4.9).</summary>
+    private ZipDeliveryResult LogUnmarked(ZipDeliveryResult result)
+    {
+        if (result.Unmarked.Count > 0)
+        {
+            log($"{result.Unmarked.Count} file(s) delivered from a ZIP could not take its internet mark; the delivery folder may not be on NTFS.");
+        }
+        return result;
+    }
 
     private static Delivery DeliveryOf(string messageId, string sha256, DirectoryInfo folder, ZipDeliveryResult result) =>
         new(messageId, sha256, folder.FullName, [.. result.Written, .. result.Found], result.Blocked is not null);
